@@ -246,6 +246,13 @@ export class TradingEngine extends EventEmitter {
     }
   }
 
+  async handleRealtimeTrade({ mint, payload } = {}) {
+    if (!mint || !this.positions.has(mint)) return;
+    const mcap = await this.getRealtimeMcap(mint);
+    if (!Number.isFinite(mcap) || mcap <= 0) return;
+    await this.updatePositions([{ mint, latest_mcap: mcap }], 'realtime');
+  }
+
   async handleSignals(tokens, sourceLabel) {
     for (const token of tokens) {
       await this.handleNewSignal(token, sourceLabel);
@@ -357,11 +364,6 @@ export class TradingEngine extends EventEmitter {
       const position = this.positions.get(mint);
       const currentMcap = parseFloat(token.latest_mcap || token.initial_mcap || 0);
       if (!currentMcap) continue;
-
-      // When realtime monitoring is enabled, only act on realtime updates
-      if (this.realtimeMcapEnabled && source !== 'realtime') {
-        continue;
-      }
 
       // Update max
       if (currentMcap > position.maxMcap) position.maxMcap = currentMcap;

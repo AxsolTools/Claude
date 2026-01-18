@@ -78,6 +78,10 @@ pumpPortalWs.on('migration', ({ mint, state }) => {
   tradingEngine.setMigrationState(mint, state, 'pumpportal');
 });
 
+pumpPortalWs.on('trade', ({ mint, payload }) => {
+  tradingEngine.handleRealtimeTrade({ mint, payload });
+});
+
 pumpPortalWs.on('error', (err) => {
   console.error('PumpPortal WS error:', err?.message || err);
 });

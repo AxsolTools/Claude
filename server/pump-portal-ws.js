@@ -7,6 +7,7 @@ export class PumpPortalWebSocket extends EventEmitter {
     this.url = url || 'wss://pumpportal.fun/api/data';
     this.accountKeys = accountKeys.filter(Boolean);
     this.tokenKeys = tokenKeys.filter(Boolean);
+    this.subscribedTokenKeys = new Set(this.tokenKeys);
     this.ws = null;
     this.reconnectDelayMs = 5000;
     this.shouldReconnect = true;
@@ -54,6 +55,12 @@ export class PumpPortalWebSocket extends EventEmitter {
   setTokenKeys(keys = []) {
     const unique = Array.from(new Set(keys.filter(Boolean)));
     this.tokenKeys = unique;
+    const next = new Set(unique);
+    const toUnsubscribe = Array.from(this.subscribedTokenKeys).filter((key) => !next.has(key));
+    if (toUnsubscribe.length > 0) {
+      this.send({ method: 'unsubscribeTokenTrade', keys: toUnsubscribe });
+    }
+    this.subscribedTokenKeys = next;
     this.subscribeTokenTrades();
   }
 
