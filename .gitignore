@@ -4,3 +4,4 @@ node_modules/
 data/
 client/node_modules/
 client/dist/
+do-app.secrets.yaml
