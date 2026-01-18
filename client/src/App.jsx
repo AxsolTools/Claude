@@ -242,27 +242,42 @@ function App() {
     }).slice(0, 200);
   }, [tokens, getTokenTimeBySource]);
 
-  const initialCap = (token) => {
-    if (token?.raw_data) {
-      try {
-        const rawData = typeof token.raw_data === 'string' ? JSON.parse(token.raw_data) : token.raw_data;
-        const raw =
-          rawData?.initial_mcap ??
-          rawData?.initial_market_cap ??
-          rawData?.initial_mc ??
-          rawData?.first_called_mcap;
-        const parsed = Number(raw);
-        if (Number.isFinite(parsed)) return parsed;
-      } catch {
-        // fall through to stored fields
-      }
+  const getRawData = (token) => {
+    if (!token?.raw_data) return null;
+    try {
+      return typeof token.raw_data === 'string' ? JSON.parse(token.raw_data) : token.raw_data;
+    } catch {
+      return null;
     }
+  };
+
+  const initialCap = (token) => {
+    const rawData = getRawData(token);
+    const raw =
+      rawData?.initial_mcap ??
+      rawData?.initial_market_cap ??
+      rawData?.initial_mc ??
+      rawData?.first_called_mcap;
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) return parsed;
     return token.initial_mcap || token.initial_market_cap || token.initial_mc || token.first_called_mcap;
   };
-  const athCap = (token) => token.ath_mcap || token.ath_market_cap || token.ath_mc || token.ath;
-  const athMultiple = (token) => {
+
+  const claudeCashAthCap = (token) => {
+    const rawData = getRawData(token);
+    const raw =
+      rawData?.ath ??
+      rawData?.ath_mcap ??
+      rawData?.ath_market_cap ??
+      rawData?.ath_mc;
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) return parsed;
+    return token.ath_mcap || token.ath_market_cap || token.ath_mc || token.ath;
+  };
+
+  const claudeCashAthMultiple = (token) => {
     const initial = initialCap(token);
-    const ath = athCap(token);
+    const ath = claudeCashAthCap(token);
     if (!initial || !ath) return null;
     return ath / initial;
   };
@@ -326,15 +341,13 @@ function App() {
   }, [connected]);
 
   const claudeCashTokens = getClaudeCashTokens();
-  const claudeCashStatsTokens = useMemo(() => {
-    return tokens.filter(t => {
-      const sources = (t.sources || t.source || '').split(',').map(s => s.trim());
-      return sources.includes('print_scan');
-    });
-  }, [tokens]);
+  const claudeCashStatsTokens = tokens.filter(t => {
+    const sources = (t.sources || t.source || '').split(',').map(s => s.trim());
+    return sources.includes('print_scan');
+  });
   const totalCalls = claudeCashStatsTokens.length;
   const athMultiples = claudeCashStatsTokens
-    .map(athMultiple)
+    .map(claudeCashAthMultiple)
     .filter((value) => Number.isFinite(value) && value > 0);
   const successfulCalls = athMultiples.filter((value) => value > 1).length;
   const successRate = totalCalls > 0 ? (successfulCalls / totalCalls) * 100 : 0;
