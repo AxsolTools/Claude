@@ -326,8 +326,14 @@ function App() {
   }, [connected]);
 
   const claudeCashTokens = getClaudeCashTokens();
-  const totalCalls = claudeCashTokens.length;
-  const athMultiples = claudeCashTokens
+  const claudeCashStatsTokens = useMemo(() => {
+    return tokens.filter(t => {
+      const sources = (t.sources || t.source || '').split(',').map(s => s.trim());
+      return sources.includes('print_scan');
+    });
+  }, [tokens]);
+  const totalCalls = claudeCashStatsTokens.length;
+  const athMultiples = claudeCashStatsTokens
     .map(athMultiple)
     .filter((value) => Number.isFinite(value) && value > 0);
   const successfulCalls = athMultiples.filter((value) => value > 1).length;
