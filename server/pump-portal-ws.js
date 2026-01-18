@@ -8,6 +8,7 @@ export class PumpPortalWebSocket extends EventEmitter {
     this.accountKeys = accountKeys.filter(Boolean);
     this.tokenKeys = tokenKeys.filter(Boolean);
     this.subscribedTokenKeys = new Set(this.tokenKeys);
+    this.debug = process.env.DEBUG_PUMP_PORTAL_MONITOR === 'true';
     this.ws = null;
     this.reconnectDelayMs = 5000;
     this.shouldReconnect = true;
@@ -61,6 +62,9 @@ export class PumpPortalWebSocket extends EventEmitter {
       this.send({ method: 'unsubscribeTokenTrade', keys: toUnsubscribe });
     }
     this.subscribedTokenKeys = next;
+    if (this.debug) {
+      console.log(`PumpPortal monitor watching ${this.subscribedTokenKeys.size} token(s).`);
+    }
     this.subscribeTokenTrades();
   }
 
@@ -88,6 +92,9 @@ export class PumpPortalWebSocket extends EventEmitter {
     }
 
     if (message?.method?.toLowerCase?.().includes('trade') || message?.type?.toLowerCase?.().includes('trade')) {
+      if (this.debug && mint && this.subscribedTokenKeys.has(mint)) {
+        console.log(`PumpPortal trade update received for ${mint.slice(0, 6)}…`);
+      }
       this.emit('trade', { mint, payload: message });
     }
   }

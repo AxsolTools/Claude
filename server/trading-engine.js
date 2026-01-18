@@ -122,6 +122,7 @@ export class TradingEngine extends EventEmitter {
 
   startRealtimeMonitor() {
     if (!this.realtimeMcapEnabled) return;
+    this.log('info', 'Realtime monitoring enabled (Helius).');
     setInterval(() => {
       if (this.realtimePausedUntil && Date.now() < this.realtimePausedUntil) return;
       this.updatePositionsRealtime().catch((e) => {
