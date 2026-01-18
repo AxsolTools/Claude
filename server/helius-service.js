@@ -11,6 +11,8 @@ export class HeliusService {
       : new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
     this.rpcUrl = apiKey ? `https://mainnet.helius-rpc.com/?api-key=${apiKey}` : null;
     this.solPriceCache = { value: null, ts: 0 };
+    this.dexScreenerCache = new Map(); // mint -> { mcap, price, ts }
+    this.dexScreenerTtlMs = 10000; // 10 seconds
   }
 
   async getSolBalance(address) {
@@ -74,6 +76,21 @@ export class HeliusService {
     if (this.solPriceCache.value && now - this.solPriceCache.ts < 30000) {
       return this.solPriceCache.value;
     }
+    // Use CoinGecko for reliable SOL/USD price
+    try {
+      const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+      if (res.ok) {
+        const json = await res.json();
+        const price = json?.solana?.usd;
+        if (Number.isFinite(price)) {
+          this.solPriceCache = { value: price, ts: now };
+          return price;
+        }
+      }
+    } catch {
+      // Fall through to Helius fallback
+    }
+    // Fallback to Helius getAsset
     const asset = await this.getAsset(SOL_MINT);
     const priceInfo = asset?.token_info?.price_info;
     const directUsd = this.pickFirstFinite([
@@ -128,6 +145,34 @@ export class HeliusService {
         return Number.isFinite(solUsd) ? rawPrice * solUsd : null;
       }
       return rawPrice;
+    } catch {
+      return null;
+    }
+  }
+
+  async getDexScreenerMcap(mintAddress) {
+    if (!mintAddress) return null;
+    const now = Date.now();
+    const cached = this.dexScreenerCache.get(mintAddress);
+    if (cached && now - cached.ts < this.dexScreenerTtlMs) {
+      return cached.mcap;
+    }
+    try {
+      const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`);
+      if (!res.ok) return null;
+      const json = await res.json();
+      const pairs = json?.pairs;
+      if (!Array.isArray(pairs) || pairs.length === 0) return null;
+      // Use the pair with highest liquidity
+      const sorted = pairs
+        .filter(p => p.chainId === 'solana' && Number.isFinite(p.marketCap))
+        .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
+      const best = sorted[0];
+      if (!best) return null;
+      const mcap = best.marketCap || best.fdv;
+      if (!Number.isFinite(mcap) || mcap <= 0) return null;
+      this.dexScreenerCache.set(mintAddress, { mcap, price: parseFloat(best.priceUsd), ts: now });
+      return mcap;
     } catch {
       return null;
     }

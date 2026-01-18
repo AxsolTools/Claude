@@ -215,6 +215,14 @@ export class TradingEngine extends EventEmitter {
       return cached.value;
     }
 
+    // Try DexScreener first (most reliable for pump.fun tokens)
+    const dexMcap = await this.helius.getDexScreenerMcap(mint);
+    if (Number.isFinite(dexMcap) && dexMcap > 0) {
+      this.mcapCache.set(mint, { value: dexMcap, ts: now });
+      return dexMcap;
+    }
+
+    // Fallback to Helius price × supply calculation
     const tokenRecord = this.getTokenRecord(mint);
     const isMigrating = this.isTokenMigrating(tokenRecord);
     let price = null;
