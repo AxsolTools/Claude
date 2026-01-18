@@ -143,12 +143,9 @@ const refreshVisibleTokens = async () => {
     ? VISIBLE_REFRESH_LIMIT
     : 15;
   try {
-    const printSource = (process.env.PRINT_SCAN_SOURCE || 'leaderboard').toLowerCase();
     const [memeRadar, printScan] = await Promise.all([
       api.fetchMemeRadar('recency', limit),
-      printSource === 'leaderboard'
-        ? api.fetchLeaderboard(limit, 0, true)
-        : api.fetchPrintScan()
+      api.fetchLeaderboard(limit, 0, true)
     ]);
 
     const memeTokens = extractMemeRadarTokens(memeRadar);
