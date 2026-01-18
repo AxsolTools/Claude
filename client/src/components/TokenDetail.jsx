@@ -1,4 +1,14 @@
 export function TokenDetail({ token, onClose }) {
+  const initialCap = (data) => {
+    const raw =
+      data?.initial_mcap ??
+      data?.initial_market_cap ??
+      data?.initial_mc ??
+      data?.first_called_mcap;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
   const formatMcap = (mcap) => {
     if (mcap == null) return '-';
     if (mcap >= 1000000) return '$' + (mcap / 1000000).toFixed(2) + 'M';
@@ -50,7 +60,7 @@ export function TokenDetail({ token, onClose }) {
           </div>
           <div className="metric">
             <label>Initial</label>
-            <div className="value">{formatMcap(token.initial_mcap)}</div>
+            <div className="value">{formatMcap(initialCap(token))}</div>
           </div>
           <div className="metric">
             <label>ATH</label>
@@ -59,8 +69,8 @@ export function TokenDetail({ token, onClose }) {
           <div className="metric">
             <label>Current X</label>
             <div className="value accent">
-              {token.initial_mcap && token.latest_mcap
-                ? (token.latest_mcap / token.initial_mcap).toFixed(2)
+              {initialCap(token) && token.latest_mcap
+                ? (token.latest_mcap / initialCap(token)).toFixed(2)
                 : '-'}
             </div>
           </div>
