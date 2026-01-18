@@ -277,24 +277,6 @@ function App() {
     }
   };
 
-  const parseMetric = (value) => {
-    if (value == null) return null;
-    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-    const raw = String(value).trim();
-    if (!raw) return null;
-    const cleaned = raw.replace(/[$,]/g, '').trim();
-    const match = cleaned.match(/^(-?\d*\.?\d+)\s*([kmb])?$/i);
-    if (!match) {
-      const fallback = Number.parseFloat(cleaned);
-      return Number.isFinite(fallback) ? fallback : null;
-    }
-    const base = Number.parseFloat(match[1]);
-    if (!Number.isFinite(base)) return null;
-    const suffix = match[2]?.toLowerCase();
-    const multiplier = suffix === 'b' ? 1e9 : suffix === 'm' ? 1e6 : suffix === 'k' ? 1e3 : 1;
-    return base * multiplier;
-  };
-
   const initialCap = (token) => {
     const rawData = getRawData(token);
     const raw =
@@ -302,9 +284,9 @@ function App() {
       rawData?.initial_market_cap ??
       rawData?.initial_mc ??
       rawData?.first_called_mcap;
-    const parsed = parseMetric(raw);
-    if (parsed != null) return parsed;
-    return parseMetric(token.initial_mcap || token.initial_market_cap || token.initial_mc || token.first_called_mcap);
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) return parsed;
+    return token.initial_mcap || token.initial_market_cap || token.initial_mc || token.first_called_mcap;
   };
 
   const claudeCashAthCap = (token) => {
@@ -314,9 +296,9 @@ function App() {
       rawData?.ath_mcap ??
       rawData?.ath_market_cap ??
       rawData?.ath_mc;
-    const parsed = parseMetric(raw);
-    if (parsed != null) return parsed;
-    return parseMetric(token.ath_mcap || token.ath_market_cap || token.ath_mc || token.ath);
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed)) return parsed;
+    return token.ath_mcap || token.ath_market_cap || token.ath_mc || token.ath;
   };
 
   const claudeCashAthMultiple = (token) => {
