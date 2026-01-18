@@ -250,6 +250,16 @@ function App() {
     }).slice(0, 200);
   }, [tokens, getTokenTimeBySource]);
 
+  const initialCap = (token) => token.initial_mcap || token.initial_market_cap || token.initial_mc || token.first_called_mcap;
+  const athCap = (token) => token.ath_mcap || token.ath_market_cap || token.ath_mc || token.ath;
+  const highestMultiple = (token) => {
+    if (Number.isFinite(token.highest_multiplier)) return token.highest_multiplier;
+    const initial = initialCap(token);
+    const ath = athCap(token);
+    if (!initial || !ath) return null;
+    return ath / initial;
+  };
+
   const formatActivity = (entry) => {
     if (!entry) return '';
     const time = new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -307,6 +317,18 @@ function App() {
       return () => clearInterval(interval);
     }
   }, [connected]);
+
+  const claudeCashTokens = getClaudeCashTokens();
+  const totalCalls = claudeCashTokens.length;
+  const highestMultiples = claudeCashTokens
+    .map(highestMultiple)
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const successfulCalls = highestMultiples.filter((value) => value > 1).length;
+  const successRate = totalCalls > 0 ? (successfulCalls / totalCalls) * 100 : 0;
+  const averageHighestX =
+    highestMultiples.length > 0
+      ? highestMultiples.reduce((sum, value) => sum + value, 0) / highestMultiples.length
+      : 0;
 
   return (
     <div className="app">
@@ -404,6 +426,22 @@ function App() {
                 <div className="ops-stat">
                   <span>Tracked tokens</span>
                   <strong>{tokens.length}</strong>
+                </div>
+                <div className="ops-stat">
+                  <span>Total calls</span>
+                  <strong>{totalCalls}</strong>
+                </div>
+                <div className="ops-stat">
+                  <span>Successful calls</span>
+                  <strong>{successfulCalls}</strong>
+                </div>
+                <div className="ops-stat">
+                  <span>Success rate</span>
+                  <strong>{successRate.toFixed(1)}%</strong>
+                </div>
+                <div className="ops-stat">
+                  <span>Average highest X</span>
+                  <strong>{averageHighestX.toFixed(1)}x</strong>
                 </div>
               </div>
             </div>
