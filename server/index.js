@@ -270,10 +270,12 @@ async function pollStalkFun() {
             const isNew = tokenStore.upsertToken(token, 'meme_radar');
             const record = tokenStore.getToken(mint);
             if (isNew) {
-              newTokens.push(record);
-              newMemeTokens.push(record);
+              const flagged = { ...record, isNew: true };
+              newTokens.push(flagged);
+              newMemeTokens.push(flagged);
+            } else {
+              updatedTokens.push(record);
             }
-            else updatedTokens.push(record);
           }
         } else if (process.env.DEBUG_MEME_RADAR === 'true') {
           console.log('Meme radar response keys:', Object.keys(memeRadar || {}));
@@ -323,8 +325,9 @@ async function pollStalkFun() {
             const isNew = tokenStore.upsertToken(token, 'print_scan');
             const record = tokenStore.getToken(tokenAddress);
             if (isNew) {
-              newTokens.push(record);
-              newPrintTokens.push(record);
+              const flagged = { ...record, isNew: true };
+              newTokens.push(flagged);
+              newPrintTokens.push(flagged);
             } else {
               updatedTokens.push(record);
             }

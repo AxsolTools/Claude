@@ -148,7 +148,7 @@ function App() {
               }
             }
 
-            // Trigger ClaudeCash sound only if the token would appear on the visible ClaudeCash page.
+            // Trigger ClaudeCash sound only for truly new tokens.
             if (activeTabRef.current === 'claudecash' && soundEnabledRef.current) {
               const pageSize = 15;
               const nextClaudeCash = nextTokens
@@ -163,6 +163,7 @@ function App() {
                 })
                 .slice(0, pageSize);
               const match = newIncoming.find((token) =>
+                token.isNew &&
                 nextClaudeCash.some(t => t.address === token.address)
               );
               if (match && match.address !== lastSoundTokenRef.current) {
