@@ -63,6 +63,8 @@ if (backfilled > 0) {
 const tradingEngine = new TradingEngine({ tokenStore });
 tradingEngine.start();
 
+const VISIBLE_REFRESH_LIMIT = Number.parseInt(process.env.VISIBLE_REFRESH_LIMIT || '15', 10);
+
 const pumpPortalWs = new PumpPortalWebSocket({
   url: process.env.PUMP_PORTAL_WS_URL || 'wss://pumpportal.fun/api/data',
   accountKeys: (tradingEngine.walletAddress || '')
@@ -117,14 +119,64 @@ tradingEngine.on('holders', (holders) => {
   broadcast({ type: 'holders', data: { holders } });
 });
 
+const extractMemeRadarTokens = (memeRadar) => {
+  const memeData = memeRadar?.data;
+  return (
+    (Array.isArray(memeData) ? memeData : null) ||
+    (Array.isArray(memeData?.data) ? memeData.data : null) ||
+    memeRadar?.tokens ||
+    memeRadar?.results ||
+    memeRadar?.items ||
+    []
+  );
+};
+
+const extractPrintScanTokens = (printScan) => {
+  return printScan?.tokens || printScan?.data || printScan?.items || [];
+};
+
+// Refresh visible tokens before sending snapshots; live events remain unchanged.
+const refreshVisibleTokens = async () => {
+  if (!api.isAuthenticated()) return;
+  const limit = Number.isFinite(VISIBLE_REFRESH_LIMIT) && VISIBLE_REFRESH_LIMIT > 0
+    ? VISIBLE_REFRESH_LIMIT
+    : 15;
+  try {
+    const printSource = (process.env.PRINT_SCAN_SOURCE || 'leaderboard').toLowerCase();
+    const [memeRadar, printScan] = await Promise.all([
+      api.fetchMemeRadar('recency', limit),
+      printSource === 'leaderboard'
+        ? api.fetchLeaderboard(limit, 0, true)
+        : api.fetchPrintScan()
+    ]);
+
+    const memeTokens = extractMemeRadarTokens(memeRadar);
+    if (Array.isArray(memeTokens)) {
+      for (const token of memeTokens) {
+        tokenStore.upsertToken(token, 'meme_radar');
+      }
+    }
+
+    const printTokens = extractPrintScanTokens(printScan);
+    if (Array.isArray(printTokens)) {
+      for (const token of printTokens) {
+        tokenStore.upsertToken(token, 'print_scan');
+      }
+    }
+  } catch (error) {
+    console.warn('Refresh-visible fetch failed:', error?.message || error);
+  }
+};
+
 // Track connected WebSocket clients
 const clients = new Set();
 
-wss.on('connection', (ws) => {
+wss.on('connection', async (ws) => {
   clients.add(ws);
   console.log(`Client connected. Total: ${clients.size}`);
   
   // Send current state on connect (always)
+  await refreshVisibleTokens();
   const snapshot = {
     type: 'refresh',
     data: {
@@ -357,6 +409,7 @@ async function pollStalkFun() {
 
     // On first run, push a full refresh without highlighting
     if (!initialized) {
+      await refreshVisibleTokens();
       broadcast({
         type: 'refresh',
         data: {
