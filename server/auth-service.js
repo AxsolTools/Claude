@@ -48,20 +48,65 @@ export class AuthService {
       : new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
     this.helius = new HeliusService(process.env.HELIUS_API);
 
-    // Token gate configuration
-    this.tokenGateEnabled = process.env.TOKEN_GATE_ENABLED === 'true';
+    // Auto token gate configuration (separate from payment gate)
+    this.autoTokenGateEnabled = process.env.AUTO_TOKEN_GATE_ENABLED === 'true';
     this.tokenGateMint = process.env.HOLDERS_MINT || null;
     this.tokenGateMinAmount = parseFloat(process.env.TOKEN_GATE_MIN_AMOUNT || '10000000'); // 10M default
   }
 
   async checkTokenGateEligibility(wallet) {
-    if (!this.tokenGateEnabled || !this.tokenGateMint) return { eligible: false };
+    if (!this.autoTokenGateEnabled || !this.tokenGateMint) return { eligible: false };
     try {
       const balance = await this.helius.getWalletTokenBalance(wallet, this.tokenGateMint);
       const eligible = balance >= this.tokenGateMinAmount;
       return { eligible, balance, required: this.tokenGateMinAmount };
     } catch {
       return { eligible: false, balance: 0, required: this.tokenGateMinAmount };
+    }
+  }
+
+  async checkHolderBalanceFromList(wallet, holders) {
+    if (!this.autoTokenGateEnabled || !this.tokenGateMint || !Array.isArray(holders)) return null;
+    const holder = holders.find(h => h.address === wallet);
+    if (!holder) return null;
+    const balance = holder.uiAmount ?? holder.amount ?? 0;
+    return { balance, eligible: balance >= this.tokenGateMinAmount, required: this.tokenGateMinAmount };
+  }
+
+  async monitorHolderLicensesFromList(holders) {
+    if (!this.autoTokenGateEnabled || !this.tokenGateMint || !this.client) return;
+    if (!Array.isArray(holders) || holders.length === 0) return;
+    
+    try {
+      // Get all active holder licenses
+      const { data: holderLicenses, error } = await this.client
+        .from('licenses')
+        .select('wallet, session_token')
+        .eq('plan', 'holder')
+        .not('session_token', 'is', null);
+      
+      if (error || !holderLicenses || holderLicenses.length === 0) return;
+
+      // Create a map of holder addresses to balances from the holders list
+      const holderBalances = new Map();
+      for (const h of holders) {
+        const balance = h.uiAmount ?? h.amount ?? 0;
+        holderBalances.set(h.address, balance);
+      }
+
+      for (const license of holderLicenses) {
+        const balance = holderBalances.get(license.wallet) ?? 0;
+        if (balance < this.tokenGateMinAmount) {
+          // Deactivate: clear session (they'll be logged out on next validate)
+          await this.client
+            .from('licenses')
+            .update({ session_token: null, device_id: null })
+            .eq('wallet', license.wallet);
+          console.log(`Auto token gate: Deactivated ${license.wallet} (balance: ${balance}, required: ${this.tokenGateMinAmount})`);
+        }
+      }
+    } catch (e) {
+      console.error('Auto token gate holder monitor error:', e?.message || e);
     }
   }
 
@@ -498,44 +543,9 @@ export class AuthService {
     return { ok: true };
   }
 
-  async monitorHolderLicenses() {
-    if (!this.tokenGateEnabled || !this.tokenGateMint || !this.client) return;
-    
-    try {
-      // Get all active holder licenses
-      const { data: holders, error } = await this.client
-        .from('licenses')
-        .select('wallet, session_token')
-        .eq('plan', 'holder')
-        .not('session_token', 'is', null);
-      
-      if (error || !holders || holders.length === 0) return;
-
-      for (const holder of holders) {
-        const check = await this.checkTokenGateEligibility(holder.wallet);
-        if (!check.eligible) {
-          // Deactivate: clear session (they'll be logged out on next validate)
-          await this.client
-            .from('licenses')
-            .update({ session_token: null, device_id: null })
-            .eq('wallet', holder.wallet);
-          console.log(`Token gate: Deactivated ${holder.wallet} (balance: ${check.balance}, required: ${check.required})`);
-        }
-      }
-    } catch (e) {
-      console.error('Holder license monitor error:', e?.message || e);
-    }
-  }
-
-  startHolderMonitor(intervalMs = 30000) {
-    if (!this.tokenGateEnabled) return;
-    console.log(`Token gate monitor started. Checking every ${intervalMs / 1000}s`);
-    setInterval(() => this.monitorHolderLicenses(), intervalMs);
-  }
-
   getTokenGateInfo() {
     return {
-      enabled: this.tokenGateEnabled,
+      enabled: this.autoTokenGateEnabled,
       mint: this.tokenGateMint,
       minAmount: this.tokenGateMinAmount,
     };

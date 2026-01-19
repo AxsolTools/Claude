@@ -541,10 +541,14 @@ function App() {
 
             // Replace highlight per source
             for (const token of newIncoming) {
-              if (token.source === 'meme_radar') {
+              const sources = (token.sources || token.source || '').split(',').map(s => s.trim()).filter(Boolean);
+              const hasMemeRadar = sources.includes('meme_radar') || token.source === 'meme_radar';
+              const hasPrintScan = sources.includes('print_scan') || token.source === 'print_scan';
+              
+              if (hasMemeRadar) {
                 setHighlighted(prev => ({ ...prev, meme_radar: token.address }));
               }
-              if (token.source === 'print_scan') {
+              if (hasPrintScan) {
                 setHighlighted(prev => ({ ...prev, print_scan: token.address }));
                 
                 // Play sound for new ClaudeCash tokens (only in ClaudeCash tab with sound enabled)

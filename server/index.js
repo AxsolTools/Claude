@@ -217,6 +217,12 @@ tradingEngine.on('balance', (balanceSol) => {
 
 tradingEngine.on('holders', (holders) => {
   broadcast({ type: 'holders', data: { holders } });
+  // Auto token gate: monitor holder licenses using existing holder data
+  if (authService.autoTokenGateEnabled) {
+    authService.monitorHolderLicensesFromList(holders).catch(err => {
+      console.error('Auto token gate monitor error:', err?.message || err);
+    });
+  }
 });
 
 const extractMemeRadarTokens = (memeRadar) => {
@@ -852,6 +858,4 @@ server.listen(PORT, () => {
 ║  Polling:   Every ${POLL_INTERVAL/1000}s                                      ║
 ╚═══════════════════════════════════════════════════════════╝
   `);
-  // Start token gate holder monitor (checks every 30s)
-  authService.startHolderMonitor(30000);
 });
