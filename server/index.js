@@ -318,11 +318,14 @@ wss.on('connection', async (ws, req) => {
       publicClients.add(ws);
       console.log(`Public client connected. Total: ${publicClients.size}`);
       
-      // Send recent delayed tokens (last 10 that have been shown publicly)
-      const recentPublic = getRecentPublicTokens(10);
+      // Send ALL ClaudeCash tokens that are 5+ minutes old (full data, not duplicated)
+      const recentPublic = getRecentPublicTokens(200);
       ws.send(JSON.stringify({
-        type: 'public_init',
-        data: { tokens: recentPublic }
+        type: 'init',
+        data: {
+          tokens: recentPublic,
+          stats: tokenStore.getStats()
+        }
       }));
       
       ws.on('close', () => {
@@ -400,7 +403,7 @@ function broadcastToPublic(message) {
 
 function getRecentPublicTokens(limit = 200) {
   const now = Date.now();
-  const tokens = tokenStore.getAllTokens()
+  return tokenStore.getAllTokens()
     .filter(t => {
       const sources = (t.sources || t.source || '').split(',').map(s => s.trim());
       if (!sources.includes('print_scan')) return false;
@@ -415,12 +418,6 @@ function getRecentPublicTokens(limit = 200) {
       return bTime - aTime;
     })
     .slice(0, limit);
-  
-  return tokens.map(t => ({
-    ...t,
-    original_call_time: t.first_seen_print_scan || t.first_seen_local,
-    delay_shown: true
-  }));
 }
 
 function isPublicEligible(token) {
@@ -723,45 +720,22 @@ async function broadcastPublicFeed() {
   for (let i = delayedTokenQueue.length - 1; i >= 0; i--) {
     const item = delayedTokenQueue[i];
     if (item.broadcastTime <= now) {
-      ready.push(item);
+      // Get the latest token data from store (includes all real-time updates)
+      const latestToken = tokenStore.getToken(item.token.address);
+      if (latestToken) {
+        ready.push(latestToken);
+      }
       delayedTokenQueue.splice(i, 1);
     }
   }
   
   if (ready.length === 0) return;
   
-  // Get current mcap for each token
-  const tokensWithCurrentData = await Promise.all(
-    ready.map(async ({ token, callTime }) => {
-      let currentMcap = null;
-      try {
-        if (tradingEngine?.getRealtimeMcap) {
-          currentMcap = await tradingEngine.getRealtimeMcap(token.address);
-        }
-      } catch (e) {
-        console.warn('Failed to get realtime mcap for public feed:', e.message);
-      }
-      
-      return {
-        address: token.address,
-        symbol: token.symbol,
-        name: token.name,
-        image: token.image,
-        initial_mcap: token.initial_mcap,
-        latest_mcap: token.latest_mcap,
-        realtime_mcap: currentMcap && Number.isFinite(currentMcap) ? currentMcap : token.latest_mcap,
-        original_call_time: callTime,
-        delay_shown: true,
-        sources: token.sources || token.source
-      };
-    })
-  );
-  
-  // Broadcast to public clients only
-  console.log(`Broadcasting ${tokensWithCurrentData.length} delayed tokens to ${publicClients.size} public clients`);
+  // Broadcast to public clients - same format as authenticated feed
+  console.log(`Broadcasting ${ready.length} delayed tokens to ${publicClients.size} public clients`);
   broadcastToPublic({
-    type: 'public_new_tokens',
-    data: tokensWithCurrentData
+    type: 'new_tokens',
+    data: ready
   });
 }
 

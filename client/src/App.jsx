@@ -60,6 +60,7 @@ function App() {
   // Public feed state (for unauthenticated landing page)
   const [publicToasts, setPublicToasts] = useState([]);
   const [publicActivity, setPublicActivity] = useState([]);
+  const [publicSelectedToken, setPublicSelectedToken] = useState(null);
   
   const deviceIdRef = useRef(null);
   const wsRef = useRef(null);
@@ -320,21 +321,26 @@ function App() {
         const message = JSON.parse(event.data);
         
         switch (message.type) {
-          case 'public_init':
+          case 'init':
+          case 'refresh':
+            // Initial load - same as authenticated users but filtered to 5+ min old
             if (message.data?.tokens && Array.isArray(message.data.tokens)) {
               setPublicActivity(message.data.tokens);
             }
             break;
             
-          case 'public_new_tokens':
+          case 'new_tokens':
+            // New ClaudeCash calls (after 5 min delay)
             if (message.data && Array.isArray(message.data)) {
               message.data.forEach(token => {
+                // Show toast notification
                 const newToast = {
                   id: `${token.address}-${Date.now()}`,
                   ...token
                 };
                 setPublicToasts(prev => [...prev, newToast].slice(-5));
                 
+                // Add to activity feed (prepend, no duplicates)
                 setPublicActivity(prev => {
                   const exists = prev.find(t => t.address === token.address);
                   if (exists) return prev;
@@ -345,19 +351,21 @@ function App() {
             break;
             
           case 'token_update':
+            // Real-time market cap updates (same as authenticated)
             if (message.data?.address) {
               setPublicActivity(prev => 
                 prev.map(token => 
                   token.address === message.data.address 
-                    ? { ...token, realtime_mcap: message.data.realtime_mcap }
+                    ? { ...token, ...message.data }
                     : token
                 )
               );
               
+              // Also update toasts
               setPublicToasts(prev =>
                 prev.map(toast =>
                   toast.address === message.data.address
-                    ? { ...toast, realtime_mcap: message.data.realtime_mcap }
+                    ? { ...toast, ...message.data }
                     : toast
                 )
               );
@@ -889,15 +897,25 @@ function App() {
                   <span>Connecting to live feed...</span>
                 </div>
               ) : (
-                <TokenStream 
-                  tokens={publicActivity}
-                  onSelect={() => {}} 
-                  selectedId={null}
-                  highlightedId={null}
-                  label="Called"
-                  timeSource="print_scan"
-                  pageSize={15}
-                />
+                <>
+                  <TokenStream 
+                    tokens={publicActivity}
+                    onSelect={setPublicSelectedToken} 
+                    selectedId={publicSelectedToken?.address}
+                    highlightedId={null}
+                    label="Called"
+                    timeSource="print_scan"
+                    pageSize={15}
+                  />
+                  {publicSelectedToken && (
+                    <div className="public-detail-modal">
+                      <TokenDetail 
+                        token={publicSelectedToken} 
+                        onClose={() => setPublicSelectedToken(null)}
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
