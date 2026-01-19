@@ -236,50 +236,35 @@ export class TradingEngine extends EventEmitter {
     }
 
     const computePromise = (async () => {
-      // Industrial standard: auto-detect migration state and use appropriate source
-      // 1. Try PumpPortal WebSocket cache first (realtime trade data)
-      if (this.pumpPortalWs) {
-        // Prefer USD mcap if available; otherwise convert SOL mcap using SOL/USD.
-        const pumpUsd =
-          this.pumpPortalWs.getMarketCapUsd?.(mint) ??
-          this.pumpPortalWs.getMarketCap?.(mint) ??
-          null;
-        if (Number.isFinite(pumpUsd) && pumpUsd > 0) {
-          this.mcapCache.set(mint, { value: pumpUsd, ts: Date.now() });
-          return pumpUsd;
-        }
-
-        const pumpSol = this.pumpPortalWs.getMarketCapSol?.(mint) ?? null;
-        if (Number.isFinite(pumpSol) && pumpSol > 0) {
+      // Priority: Jupiter (most accurate) → DexScreener (fallback)
+      // 1. Jupiter: price × supply for all tokens (bonding + migrated)
+      try {
+        const supply = await this.helius.getTokenSupply(mint);
+        if (supply?.uiAmount && supply.uiAmount > 0) {
           const solUsd = await this.helius.getSolUsdPrice();
-          const pumpConverted = Number.isFinite(solUsd) && solUsd > 0 ? pumpSol * solUsd : null;
-          if (Number.isFinite(pumpConverted) && pumpConverted > 0) {
-            this.mcapCache.set(mint, { value: pumpConverted, ts: Date.now() });
-            return pumpConverted;
-          }
-        }
-      }
-      
-      // 2. Check migration state and use Helius for migrated tokens
-      const cachedMigration = this.getCachedMigrationState(mint);
-      const isMigrated = cachedMigration === false; // false means migration complete
-      
-      if (isMigrated) {
-        // Token is migrated - use Helius getAsset
-        const price = await this.helius.getTokenPrice(mint);
-        if (price) {
-          const supply = await this.helius.getTokenSupply(mint);
-          if (supply?.uiAmount) {
-            const mcap = price * supply.uiAmount;
-            if (Number.isFinite(mcap) && mcap > 0) {
-              this.mcapCache.set(mint, { value: mcap, ts: Date.now() });
-              return mcap;
+          if (Number.isFinite(solUsd) && solUsd > 0) {
+            // Fetch Jupiter quote: 1 token → SOL
+            const quoteRes = await fetch(`${this.jupiterBase}/quote?inputMint=${mint}&outputMint=So11111111111111111111111111111111111111112&amount=${Math.pow(10, supply.decimals || 6)}&slippageBps=50`);
+            if (quoteRes.ok) {
+              const quoteData = await quoteRes.json();
+              const outAmountLamports = Number(quoteData?.outAmount || 0);
+              if (outAmountLamports > 0) {
+                const tokenPriceSol = outAmountLamports / 1e9;
+                const tokenPriceUsd = tokenPriceSol * solUsd;
+                const mcap = tokenPriceUsd * supply.uiAmount;
+                if (Number.isFinite(mcap) && mcap > 0) {
+                  this.mcapCache.set(mint, { value: mcap, ts: Date.now() });
+                  return mcap;
+                }
+              }
             }
           }
         }
+      } catch {
+        // Fall through to DexScreener
       }
       
-      // 3. Fallback to DexScreener if PumpPortal and Helius fail
+      // 2. Fallback to DexScreener
       const dexMcap = await this.helius.getDexScreenerMcap(mint);
       if (Number.isFinite(dexMcap) && dexMcap > 0) {
         this.mcapCache.set(mint, { value: dexMcap, ts: Date.now() });

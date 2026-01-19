@@ -667,46 +667,19 @@ async function pollStalkFun() {
     }
 
     // Broadcast updates for existing tokens so UIs stay live
-    // Attach realtime_mcap from multiple cache sources (prefer freshest)
+    // Attach realtime_mcap using Jupiter (primary) → DexScreener (fallback)
     if (updatedTokens.length > 0) {
       for (const token of updatedTokens.filter(Boolean)) {
         const mint = token?.address || token?.mint;
-        if (mint) {
-          // Check PumpPortal WebSocket cache first (freshest for bonding curve)
-          if (tradingEngine?.pumpPortalWs) {
-            let pumpMcap =
-              tradingEngine.pumpPortalWs.getMarketCapUsd?.(mint) ??
-              tradingEngine.pumpPortalWs.getMarketCap?.(mint) ??
-              null;
-
-            // Seamless fallback: if PumpPortal only provides SOL mcap, convert using SOL/USD.
-            if (!pumpMcap) {
-              const pumpSol = tradingEngine.pumpPortalWs.getMarketCapSol?.(mint) ?? null;
-              if (Number.isFinite(pumpSol) && pumpSol > 0) {
-                try {
-                  const solUsd = await tradingEngine.helius.getSolUsdPrice();
-                  const converted = Number.isFinite(solUsd) && solUsd > 0 ? pumpSol * solUsd : null;
-                  if (Number.isFinite(converted) && converted > 0) {
-                    pumpMcap = converted;
-                  }
-                } catch {
-                  // ignore
-                }
-              }
-            }
-
-            if (Number.isFinite(pumpMcap) && pumpMcap > 0) {
-              token.realtime_mcap = pumpMcap;
+        if (mint && tradingEngine?.getRealtimeMcap) {
+          try {
+            const mcap = await tradingEngine.getRealtimeMcap(mint);
+            if (Number.isFinite(mcap) && mcap > 0) {
+              token.realtime_mcap = mcap;
               token.realtime_mcap_ts = Date.now();
             }
-          }
-          // Fall back to DexScreener cache if no PumpPortal data
-          if (!token.realtime_mcap && tradingEngine?.helius?.dexScreenerCache) {
-            const cached = tradingEngine.helius.dexScreenerCache.get(mint);
-            if (cached?.mcap && Date.now() - cached.ts < 5000) {
-              token.realtime_mcap = cached.mcap;
-              token.realtime_mcap_ts = cached.ts;
-            }
+          } catch {
+            // ignore
           }
         }
         broadcast({ type: 'token_update', data: token });
