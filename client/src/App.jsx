@@ -1063,11 +1063,11 @@ function App() {
                     >
                       <div className="modal-scrim" />
                       <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-                        <TokenDetail 
-                          token={publicSelectedToken} 
-                          onClose={() => setPublicSelectedToken(null)}
-                        />
-                      </div>
+                      <TokenDetail 
+                        token={publicSelectedToken} 
+                        onClose={() => setPublicSelectedToken(null)}
+                      />
+                    </div>
                     </div>,
                     document.body
                   )}
@@ -1162,40 +1162,40 @@ function App() {
                   </div>
                 </div>
               ) : (
-                <div className="auth-payment">
-                  <div className="auth-payment-title">Payment Options</div>
-                  <div className="auth-payment-text">
-                    Weekly: 0.25 SOL · Monthly: 0.5 SOL
-                  </div>
-                  {paymentInfo && (
-                    <div className="auth-payment-details">
-                      <div className="payment-instruction">
-                        <strong>Step 1:</strong> Send exactly <strong>{paymentInfo.amountSol} SOL</strong> to:
-                      </div>
-                      <div className="auth-payment-wallet" onClick={() => {
-                        navigator.clipboard.writeText(paymentInfo.tradingWallet);
-                        alert('Wallet address copied!');
-                      }}>
-                        {paymentInfo.tradingWallet}
-                        <span className="copy-hint">Click to copy</span>
-                      </div>
-                      <div className="payment-instruction">
-                        <strong>Step 2:</strong> After sending, click "I Paid" below
-                      </div>
-                      {checkingPayment && paymentTimeout && (
-                        <div className="payment-checking">
-                          <div className="checking-spinner"></div>
-                          <span>Checking for payment... ({paymentTimeout}s)</span>
-                        </div>
-                      )}
-                      {retryCount > 0 && !checkingPayment && (
-                        <div className="payment-retry-info">
-                          Attempt {retryCount}. If you sent payment, it may take a moment to confirm on-chain.
-                        </div>
-                      )}
-                    </div>
-                  )}
+              <div className="auth-payment">
+                <div className="auth-payment-title">Payment Options</div>
+                <div className="auth-payment-text">
+                  Weekly: 0.25 SOL · Monthly: 0.5 SOL
                 </div>
+                {paymentInfo && (
+                  <div className="auth-payment-details">
+                    <div className="payment-instruction">
+                      <strong>Step 1:</strong> Send exactly <strong>{paymentInfo.amountSol} SOL</strong> to:
+                    </div>
+                    <div className="auth-payment-wallet" onClick={() => {
+                      navigator.clipboard.writeText(paymentInfo.tradingWallet);
+                      alert('Wallet address copied!');
+                    }}>
+                      {paymentInfo.tradingWallet}
+                      <span className="copy-hint">Click to copy</span>
+                    </div>
+                    <div className="payment-instruction">
+                      <strong>Step 2:</strong> After sending, click "I Paid" below
+                    </div>
+                    {checkingPayment && paymentTimeout && (
+                      <div className="payment-checking">
+                        <div className="checking-spinner"></div>
+                        <span>Checking for payment... ({paymentTimeout}s)</span>
+                      </div>
+                    )}
+                    {retryCount > 0 && !checkingPayment && (
+                      <div className="payment-retry-info">
+                        Attempt {retryCount}. If you sent payment, it may take a moment to confirm on-chain.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               )}
               {authError && (
                 <div className="auth-error">
@@ -1217,17 +1217,17 @@ function App() {
                     </>
                   ) : (
                     <>
-                      {retryCount > 0 && retryCount < 3 && (
-                        <div className="error-help">
-                          • Verify you sent the exact amount ({paymentInfo?.amountSol} SOL)<br/>
-                          • Check the transaction completed on-chain<br/>
-                          • Wait 30-60 seconds after sending before clicking "I Paid"
-                        </div>
-                      )}
-                      {retryCount >= 3 && (
-                        <div className="error-help">
-                          Still not working? Contact support with your wallet address and transaction signature.
-                        </div>
+                  {retryCount > 0 && retryCount < 3 && (
+                    <div className="error-help">
+                      • Verify you sent the exact amount ({paymentInfo?.amountSol} SOL)<br/>
+                      • Check the transaction completed on-chain<br/>
+                      • Wait 30-60 seconds after sending before clicking "I Paid"
+                    </div>
+                  )}
+                  {retryCount >= 3 && (
+                    <div className="error-help">
+                      Still not working? Contact support with your wallet address and transaction signature.
+                    </div>
                       )}
                     </>
                   )}
