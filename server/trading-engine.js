@@ -305,7 +305,7 @@ export class TradingEngine extends EventEmitter {
     const mcapResults = await Promise.all(
       entries.map(async ([mint, position]) => {
         try {
-          const mcap = await this.getRealtimeMcap(mint);
+          const mcap = await this.getRealtimeMcap(mint, true); // forceRefresh: true for accurate execution decisions
           return { mint, position, mcap, error: null };
         } catch (e) {
           return { mint, position, mcap: null, error: e };
