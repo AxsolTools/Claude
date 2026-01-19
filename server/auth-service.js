@@ -233,7 +233,7 @@ export class AuthService {
     const readiness = this.ensureReady();
     if (!readiness.ok) return { ok: false, error: readiness.error };
 
-    const normalizedWallet = (wallet || '').trim();
+    const normalizedWallet = (wallet || '').trim().replace(/\s+/g, '');
     if (!WALLET_REGEX.test(normalizedWallet)) {
       return { ok: false, error: 'Invalid wallet address.' };
     }
@@ -276,7 +276,7 @@ export class AuthService {
       return { ok: false, error: 'Token gate not enabled.' };
     }
 
-    const normalizedWallet = (wallet || '').trim();
+    const normalizedWallet = (wallet || '').trim().replace(/\s+/g, '');
     if (!WALLET_REGEX.test(normalizedWallet)) {
       return { ok: false, error: 'Invalid wallet address.' };
     }
@@ -359,7 +359,7 @@ export class AuthService {
       return { ok: false, error: 'Token gate not enabled.' };
     }
 
-    const normalizedWallet = (wallet || '').trim();
+    const normalizedWallet = (wallet || '').trim().replace(/\s+/g, '');
     if (!WALLET_REGEX.test(normalizedWallet)) {
       return { ok: false, error: 'Invalid wallet address.' };
     }
@@ -442,7 +442,7 @@ export class AuthService {
     const readiness = this.ensureReady();
     if (!readiness.ok) return { ok: false, error: readiness.error };
 
-    const normalizedWallet = (wallet || '').trim();
+    const normalizedWallet = (wallet || '').trim().replace(/\s+/g, '');
     if (!WALLET_REGEX.test(normalizedWallet)) {
       return { ok: false, error: 'Invalid wallet address.' };
     }
@@ -498,8 +498,21 @@ export class AuthService {
     }
 
     // If no existing license and no env license and not admin and not holder (with verified payment)
+    // Check for existing payment in database before rejecting
     if (!existing && !envLicense && !isAdminRequest && !(isHolderRequest && existing?.plan === 'holder')) {
-      return { ok: false, error: 'License key not found.' };
+      // Check if there's a payment for this wallet/plan
+      const { data: existingPayment } = await this.client
+        .from('license_payments')
+        .select('*')
+        .eq('wallet', normalizedWallet)
+        .eq('plan', requestedPlan)
+        .eq('status', 'paid')
+        .maybeSingle();
+      
+      if (!existingPayment) {
+        return { ok: false, error: 'License key not found.' };
+      }
+      // If payment exists, continue to activate license
     }
 
     // Determine the plan: admin > holder (if verified) > existing/env > requested
@@ -569,7 +582,7 @@ export class AuthService {
     const readiness = this.ensureReady();
     if (!readiness.ok) return { ok: false, error: readiness.error };
 
-    const normalizedWallet = (wallet || '').trim();
+    const normalizedWallet = (wallet || '').trim().replace(/\s+/g, '');
     if (!WALLET_REGEX.test(normalizedWallet)) {
       return { ok: false, error: 'Invalid wallet address.' };
     }
@@ -598,34 +611,54 @@ export class AuthService {
       }
     }
 
-    const { data: usedPayments } = await this.client
+    // Check for existing payment in database first
+    const { data: existingPayment } = await this.client
       .from('license_payments')
-      .select('signature')
+      .select('*')
       .eq('wallet', normalizedWallet)
-      .eq('status', 'paid');
-    const usedSignatures = new Set((usedPayments || []).map((p) => p.signature));
-    const match = await this.findMatchingPayment({
-      wallet: normalizedWallet,
-      plan: requestedPlan,
-      usedSignatures,
-    });
+      .eq('plan', requestedPlan)
+      .eq('status', 'paid')
+      .maybeSingle();
 
-    if (!match) {
-      return { ok: false, error: 'Payment not found yet.' };
-    }
-
-    await this.client
-      .from('license_payments')
-      .insert({
+    let match = null;
+    if (existingPayment) {
+      // Use existing payment from database
+      match = {
+        signature: existingPayment.signature,
+        paidAt: existingPayment.paid_at || existingPayment.created_at,
+      };
+    } else {
+      // Search blockchain for new payment
+      const { data: usedPayments } = await this.client
+        .from('license_payments')
+        .select('signature')
+        .eq('wallet', normalizedWallet)
+        .eq('status', 'paid');
+      const usedSignatures = new Set((usedPayments || []).map((p) => p.signature));
+      match = await this.findMatchingPayment({
         wallet: normalizedWallet,
         plan: requestedPlan,
-        amount_sol: this.getPlanAmountSol(requestedPlan),
-        status: 'paid',
-        signature: match.signature,
-        paid_at: match.paidAt,
-        created_at: new Date().toISOString(),
-      })
-      .select();
+        usedSignatures,
+      });
+
+      if (!match) {
+        return { ok: false, error: 'Payment not found yet.' };
+      }
+
+      // Insert new payment into database
+      await this.client
+        .from('license_payments')
+        .insert({
+          wallet: normalizedWallet,
+          plan: requestedPlan,
+          amount_sol: this.getPlanAmountSol(requestedPlan),
+          status: 'paid',
+          signature: match.signature,
+          paid_at: match.paidAt,
+          created_at: new Date().toISOString(),
+        })
+        .select();
+    }
 
     const now = new Date();
     const expiresAt = new Date(now.getTime() + PLAN_DURATIONS_MS[requestedPlan]);
@@ -704,34 +737,53 @@ export class AuthService {
     }
     const requestedPlan = (plan || '').toLowerCase();
 
-    const { data: usedPayments } = await this.client
+    // Check for existing payment in database first
+    const { data: existingPayment } = await this.client
       .from('license_payments')
-      .select('signature')
+      .select('*')
       .eq('wallet', normalizedWallet)
-      .eq('status', 'paid');
-    const usedSignatures = new Set((usedPayments || []).map((p) => p.signature));
+      .eq('plan', requestedPlan)
+      .eq('status', 'paid')
+      .maybeSingle();
 
-    // First quick check
-    let match = await this.findMatchingPayment({
-      wallet: normalizedWallet,
-      plan: requestedPlan,
-      usedSignatures,
-    });
+    let match = null;
+    if (existingPayment) {
+      // Use existing payment from database
+      match = {
+        signature: existingPayment.signature,
+        paidAt: existingPayment.paid_at || existingPayment.created_at,
+      };
+    } else {
+      // Search blockchain for new payment
+      const { data: usedPayments } = await this.client
+        .from('license_payments')
+        .select('signature')
+        .eq('wallet', normalizedWallet)
+        .eq('status', 'paid');
+      const usedSignatures = new Set((usedPayments || []).map((p) => p.signature));
 
-    if (!match) {
-      match = await this.waitForPayment({
+      // First quick check
+      match = await this.findMatchingPayment({
         wallet: normalizedWallet,
         plan: requestedPlan,
         usedSignatures,
-        timeoutMs,
       });
+
+      if (!match) {
+        match = await this.waitForPayment({
+          wallet: normalizedWallet,
+          plan: requestedPlan,
+          usedSignatures,
+          timeoutMs,
+        });
+      }
+
+      if (!match) {
+        return { ok: false, error: 'Payment not found yet.' };
+      }
     }
 
-    if (!match) {
-      return { ok: false, error: 'Payment not found yet.' };
-    }
-
-    return this.confirmPaymentAndActivate({ wallet, plan, deviceId });
+    return this.confirmPaymentAndActivate({ wallet: normalizedWallet, plan, deviceId });
   }
 
   async validateSession({ sessionToken, deviceId }) {

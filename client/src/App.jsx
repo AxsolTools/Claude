@@ -181,10 +181,11 @@ function App() {
     setAuthError('');
     const deviceId = deviceIdRef.current || getOrCreateDeviceId();
     try {
+      const normalizedWallet = (licenseKey || '').trim().replace(/\s+/g, '');
       const res = await fetch('/api/auth/activate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet: licenseKey.trim(), plan: licensePlan, deviceId }),
+        body: JSON.stringify({ wallet: normalizedWallet, plan: licensePlan, deviceId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Activation failed');
@@ -208,10 +209,11 @@ function App() {
     setAuthError('');
     setPaymentInfo(null);
     try {
+      const normalizedWallet = (licenseKey || '').trim().replace(/\s+/g, '');
       const res = await fetch('/api/auth/payment/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet: licenseKey.trim(), plan: licensePlan }),
+        body: JSON.stringify({ wallet: normalizedWallet, plan: licensePlan }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Unable to start payment');
@@ -223,9 +225,17 @@ function App() {
 
   const handleConfirmPayment = async () => {
     setAuthError('');
+    const deviceId = deviceIdRef.current || getOrCreateDeviceId();
+    
+    const normalizedWallet = (licenseKey || '').trim().replace(/\s+/g, '');
+    const walletRegex = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+    if (!normalizedWallet || !walletRegex.test(normalizedWallet)) {
+      setAuthError('Invalid wallet address. Please check the address and try again.');
+      return;
+    }
+    
     setCheckingPayment(true);
     setRetryCount(0);
-    const deviceId = deviceIdRef.current || getOrCreateDeviceId();
     
     // Set a timeout countdown (30 seconds max per attempt)
     let timeLeft = 30;
@@ -243,7 +253,7 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          wallet: licenseKey.trim(), 
+          wallet: normalizedWallet, 
           plan: licensePlan, 
           deviceId,
           timeoutMs: 30000 // 30 seconds instead of 60
@@ -311,11 +321,12 @@ function App() {
     }, 1000);
     
     try {
+      const normalizedWallet = (licenseKey || '').trim().replace(/\s+/g, '');
       const res = await fetch('/api/auth/token-gate/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          wallet: licenseKey.trim(), 
+          wallet: normalizedWallet, 
           deviceId,
           timeoutMs: 30000 // 30 seconds
         }),
@@ -1247,26 +1258,26 @@ function App() {
                 </div>
               )}
               <div className="auth-actions">
-                <button className="auth-secondary" onClick={() => setShowAuthModal(false)}>
+                <button type="button" className="auth-secondary" onClick={() => setShowAuthModal(false)}>
                   Cancel
                 </button>
-                <button className="auth-activate" onClick={handleActivate}>
+                <button type="button" className="auth-activate" onClick={handleActivate}>
                   Activate Existing
                 </button>
                 {licensePlan === 'holder' && tokenGateInfo.enabled ? (
-                  <button className="auth-primary" onClick={handleVerifyTokenGate} disabled={tokenGateVerifying || !licenseKey.trim()}>
+                  <button type="button" className="auth-primary" onClick={handleVerifyTokenGate} disabled={tokenGateVerifying || !licenseKey.trim()}>
                     {tokenGateVerifying ? `Verifying (${tokenGateTimeout}s)` : 'Verify Token Payment'}
                   </button>
                 ) : !paymentInfo ? (
-                  <button className="auth-primary" onClick={handleStartPayment}>
+                  <button type="button" className="auth-primary" onClick={handleStartPayment}>
                     New Payment
                   </button>
                 ) : (
                   <>
-                    <button className="auth-cancel-payment" onClick={handleCancelPayment} disabled={checkingPayment}>
+                    <button type="button" className="auth-cancel-payment" onClick={handleCancelPayment} disabled={checkingPayment}>
                       Cancel Payment
                     </button>
-                    <button className="auth-primary" onClick={handleConfirmPayment} disabled={checkingPayment}>
+                    <button type="button" className="auth-primary" onClick={handleConfirmPayment} disabled={checkingPayment}>
                       {checkingPayment ? `Checking (${paymentTimeout}s)` : 'I Paid'}
                     </button>
                   </>
