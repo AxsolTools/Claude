@@ -427,11 +427,29 @@ export class TradingEngine extends EventEmitter {
       this.isTokenMigrating(tokenRecord) ??
       await this.inferMigrationFromMcap(mint);
 
+    // Use same method as ClaudeCash feed (reliable, never fails)
+    // This ensures entryMcap uses the same data source as monitoring
     if (this.realtimeMcapEnabled && mint) {
-      // Force fresh fetch at entry (bypass cache) to ensure accurate baseline
-      const realtimeMcap = await this.getRealtimeMcap(mint, true);
-      if (Number.isFinite(realtimeMcap) && realtimeMcap > 0) {
-        entryMcap = realtimeMcap;
+      try {
+        // Use ClaudeCash method: getRealtimeMcap without forceRefresh (uses cache updated every 5s)
+        const realtimeMcap = await this.getRealtimeMcap(mint, false);
+        if (Number.isFinite(realtimeMcap) && realtimeMcap > 0) {
+          entryMcap = realtimeMcap;
+        } else {
+          // Fallback to token store (same as ClaudeCash fallback)
+          const tokenRecord = this.getTokenRecord(mint);
+          const storeMcap = parseFloat(tokenRecord?.latest_mcap || tokenRecord?.realtime_mcap || 0);
+          if (storeMcap && Number.isFinite(storeMcap) && storeMcap > 0) {
+            entryMcap = storeMcap;
+          }
+        }
+      } catch (e) {
+        // If fetch fails, use token store (same as ClaudeCash fallback)
+        const tokenRecord = this.getTokenRecord(mint);
+        const storeMcap = parseFloat(tokenRecord?.latest_mcap || tokenRecord?.realtime_mcap || 0);
+        if (storeMcap && Number.isFinite(storeMcap) && storeMcap > 0) {
+          entryMcap = storeMcap;
+        }
       }
     }
 
