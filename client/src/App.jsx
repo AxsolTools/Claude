@@ -540,6 +540,15 @@ function App() {
               }
               if (token.source === 'print_scan') {
                 setHighlighted(prev => ({ ...prev, print_scan: token.address }));
+                
+                // Play sound for new ClaudeCash tokens (only in ClaudeCash tab with sound enabled)
+                if (activeTabRef.current === 'claudecash' && soundEnabledRef.current) {
+                  const tokenStamp = token.address + (token.first_seen_print_scan || token.first_seen_local || Date.now());
+                  if (tokenStamp !== lastSoundTokenRef.current) {
+                    lastSoundTokenRef.current = tokenStamp;
+                    audioRef.current?.play().catch(() => {});
+                  }
+                }
               }
             }
 
