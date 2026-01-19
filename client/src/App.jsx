@@ -405,23 +405,23 @@ function App() {
   });
   const totalCalls = claudeCashStatsTokens.length;
 
-  const currentMultiple = (token) => {
+  const athMultiple = (token) => {
     const initial = statsInitialCap(token);
-    const current = statsCurrentCap(token);
-    if (!initial || !current) return null;
-    return current / initial;
+    const ath = statsAthCap(token);
+    if (!initial || !ath) return null;
+    return ath / initial;
   };
 
-  const currentMultiples = claudeCashStatsTokens
-    .map(currentMultiple)
+  const athMultiples = claudeCashStatsTokens
+    .map(athMultiple)
     .filter((value) => Number.isFinite(value) && value > 0);
-  // Success = current mcap > initial (profitable right now)
-  const successfulCalls = currentMultiples.filter((value) => value > 1).length;
-  const successRate = currentMultiples.length > 0 ? (successfulCalls / currentMultiples.length) * 100 : 0;
-  // Average of current multiples (not ATH)
+  // Success = ATH > initial (token reached higher than entry)
+  const successfulCalls = athMultiples.filter((value) => value > 1).length;
+  const successRate = athMultiples.length > 0 ? (successfulCalls / athMultiples.length) * 100 : 0;
+  // Average X = Average of ATH multiples
   const averageCurrentX =
-    currentMultiples.length > 0
-      ? currentMultiples.reduce((sum, value) => sum + value, 0) / currentMultiples.length
+    athMultiples.length > 0
+      ? athMultiples.reduce((sum, value) => sum + value, 0) / athMultiples.length
       : 0;
 
   return (

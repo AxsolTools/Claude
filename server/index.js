@@ -579,6 +579,10 @@ async function broadcastRealtimeMcaps() {
   });
 
   updates.filter(Boolean).forEach((data) => {
+    // Update ATH in database if realtime mcap is higher
+    if (data.address && data.realtime_mcap) {
+      tokenStore.updateAthIfHigher(data.address, data.realtime_mcap);
+    }
     broadcast({ type: 'token_update', data });
   });
 }

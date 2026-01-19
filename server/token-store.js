@@ -263,6 +263,19 @@ export class TokenStore {
     `).all(limit);
   }
 
+  updateAthIfHigher(address, currentMcap) {
+    if (!address || !Number.isFinite(currentMcap) || currentMcap <= 0) return;
+    try {
+      this.db.prepare(`
+        UPDATE tokens
+        SET ath_mcap = CASE WHEN ? > COALESCE(ath_mcap, 0) THEN ? ELSE ath_mcap END
+        WHERE address = ?
+      `).run(currentMcap, currentMcap, address);
+    } catch (error) {
+      console.error('Failed to update ATH:', error);
+    }
+  }
+
   getStats() {
     const stats = this.db.prepare(`
       SELECT 
