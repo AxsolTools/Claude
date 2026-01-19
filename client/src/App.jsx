@@ -951,7 +951,7 @@ function App() {
               <h2>Live Trading Activity</h2>
               <div className="header-line"></div>
             </div>
-            <p className="section-subtitle">Recent calls from my trading system (5 minute delay for public view)</p>
+            <p className="section-subtitle">Recent calls from my trading system (25 minute delay for public view)</p>
             
             <div id="live-activity-feed" className="activity-feed-container">
               {publicActivity.length === 0 ? (
