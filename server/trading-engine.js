@@ -253,14 +253,28 @@ export class TradingEngine extends EventEmitter {
     }
 
     const computePromise = (async () => {
-      // Priority: Jupiter (most accurate) → DexScreener (fallback)
-      // 1. Jupiter: price × supply for all tokens (bonding + migrated)
+      // FAST PATH: PumpPortal WS cache (instant updates from subscribeTokenTrade)
+      // This gives us marketCapSol pushed on every trade (no polling delay)
+      if (this.pumpPortalWs && !forceRefresh) {
+        const pumpSol = this.pumpPortalWs.getMarketCapSol?.(mint) ?? null;
+        if (Number.isFinite(pumpSol) && pumpSol > 0) {
+          const solUsd = await this.helius.getSolUsdPrice();
+          if (Number.isFinite(solUsd) && solUsd > 0) {
+            const mcapUsd = pumpSol * solUsd;
+            if (Number.isFinite(mcapUsd) && mcapUsd > 0) {
+              this.mcapCache.set(mint, { value: mcapUsd, ts: Date.now() });
+              return mcapUsd;
+            }
+          }
+        }
+      }
+
+      // ACCURATE PATH: Jupiter quote (for initial fetch or when PumpPortal has no data)
       try {
         const supply = await this.helius.getTokenSupply(mint);
         if (supply?.uiAmount && supply.uiAmount > 0) {
           const solUsd = await this.helius.getSolUsdPrice();
           if (Number.isFinite(solUsd) && solUsd > 0) {
-            // Fetch Jupiter quote: 1 token → SOL
             const quoteRes = await fetch(`${this.jupiterBase}/quote?inputMint=${mint}&outputMint=So11111111111111111111111111111111111111112&amount=${Math.pow(10, supply.decimals || 6)}&slippageBps=50`);
             if (quoteRes.ok) {
               const quoteData = await quoteRes.json();
@@ -281,7 +295,7 @@ export class TradingEngine extends EventEmitter {
         // Fall through to DexScreener
       }
       
-      // 2. Fallback to DexScreener
+      // FALLBACK: DexScreener
       const dexMcap = await this.helius.getDexScreenerMcap(mint);
       if (Number.isFinite(dexMcap) && dexMcap > 0) {
         this.mcapCache.set(mint, { value: dexMcap, ts: Date.now() });
