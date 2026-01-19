@@ -84,12 +84,13 @@ app.post('/api/auth/payment/confirm', async (req, res) => {
 });
 
 app.post('/api/admin/revoke', async (req, res) => {
-  const adminKey = process.env.ADMIN_API_KEY || '';
-  const authHeader = req.headers.authorization || '';
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!adminKey || token !== adminKey) {
+  const sessionToken = extractSession(req);
+  const deviceId = req.body?.deviceId || req.query?.deviceId || null;
+  const authResult = await authService.validateSession({ sessionToken, deviceId });
+  if (!authResult.ok || authResult.plan !== 'admin') {
     return res.status(401).json({ error: 'Unauthorized' });
   }
+
   const { wallet, action } = req.body || {};
   if (!wallet) return res.status(400).json({ error: 'Missing wallet' });
 
