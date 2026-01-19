@@ -230,14 +230,9 @@ export class TradingEngine extends EventEmitter {
     }
 
     const computePromise = (async () => {
-      const price = await this.helius.getTokenPrice(mint);
-      if (!price) return null;
-
-      const supply = await this.helius.getTokenSupply(mint);
-      if (!supply?.uiAmount) return null;
-
-      const mcap = price * supply.uiAmount;
-      if (!Number.isFinite(mcap)) return null;
+      // DexScreener provides accurate realtime market cap
+      const mcap = await this.helius.getDexScreenerMcap(mint);
+      if (!Number.isFinite(mcap) || mcap <= 0) return null;
 
       // Cache with fresh timestamp AFTER data is fetched
       this.mcapCache.set(mint, { value: mcap, ts: Date.now() });
