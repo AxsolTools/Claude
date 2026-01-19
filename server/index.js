@@ -476,14 +476,14 @@ async function pollStalkFun() {
     }
 
     // Broadcast updates for existing tokens so UIs stay live
-    // Preserve realtime_mcap from Helius if we have it cached
+    // Attach realtime_mcap from DexScreener cache (longer TTL than trading engine cache)
     if (updatedTokens.length > 0) {
       for (const token of updatedTokens.filter(Boolean)) {
         const mint = token?.address || token?.mint;
-        if (mint && tradingEngine?.mcapCache) {
-          const cached = tradingEngine.mcapCache.get(mint);
-          if (cached?.value && Date.now() - cached.ts < 10000) {
-            token.realtime_mcap = cached.value;
+        if (mint && tradingEngine?.helius?.dexScreenerCache) {
+          const cached = tradingEngine.helius.dexScreenerCache.get(mint);
+          if (cached?.mcap && Date.now() - cached.ts < 15000) {
+            token.realtime_mcap = cached.mcap;
             token.realtime_mcap_ts = cached.ts;
           }
         }

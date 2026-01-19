@@ -154,26 +154,45 @@ export class HeliusService {
     if (!mintAddress) return null;
     const now = Date.now();
     const cached = this.dexScreenerCache.get(mintAddress);
+    
+    // Return fresh cache
     if (cached && now - cached.ts < this.dexScreenerTtlMs) {
       return cached.mcap;
     }
+    
     try {
       const res = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`);
-      if (!res.ok) return null;
+      if (!res.ok) {
+        // On error, return stale cache if available (up to 60s old)
+        if (cached && now - cached.ts < 60000) return cached.mcap;
+        return null;
+      }
       const json = await res.json();
       const pairs = json?.pairs;
-      if (!Array.isArray(pairs) || pairs.length === 0) return null;
+      if (!Array.isArray(pairs) || pairs.length === 0) {
+        // No pairs found, return stale cache if available
+        if (cached && now - cached.ts < 60000) return cached.mcap;
+        return null;
+      }
       // Use the pair with highest liquidity
       const sorted = pairs
         .filter(p => p.chainId === 'solana' && Number.isFinite(p.marketCap))
         .sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0));
       const best = sorted[0];
-      if (!best) return null;
+      if (!best) {
+        if (cached && now - cached.ts < 60000) return cached.mcap;
+        return null;
+      }
       const mcap = best.marketCap || best.fdv;
-      if (!Number.isFinite(mcap) || mcap <= 0) return null;
+      if (!Number.isFinite(mcap) || mcap <= 0) {
+        if (cached && now - cached.ts < 60000) return cached.mcap;
+        return null;
+      }
       this.dexScreenerCache.set(mintAddress, { mcap, price: parseFloat(best.priceUsd), ts: now });
       return mcap;
     } catch {
+      // On error, return stale cache if available (up to 60s old)
+      if (cached && now - cached.ts < 60000) return cached.mcap;
       return null;
     }
   }
