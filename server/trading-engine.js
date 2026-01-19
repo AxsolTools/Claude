@@ -34,9 +34,9 @@ export class TradingEngine extends EventEmitter {
     this.tradingMode = process.env.TRADING_MODE || 'paper'; // paper | live
     this.walletAddress = process.env.TRADING_WALLET_ADDRESS || null;
     this.privateKey = process.env.TRADING_PRIVATE_KEY || null;
-    // Jupiter API base - use env var if set, otherwise default to lite-api endpoint (tested and working)
-    this.jupiterBase = process.env.JUPITER_API_BASE || 'https://lite-api.jup.ag/swap/v1';
-    this.slippageBps = parseInt(process.env.JUPITER_SLIPPAGE_BPS || '500', 10);
+    // Jupiter API base - use env var if set, otherwise default to v6 endpoint
+    this.jupiterBase = process.env.JUPITER_API_BASE || 'https://quote-api.jup.ag/v6';
+    this.slippageBps = parseInt(process.env.JUPITER_SLIPPAGE_BPS || '1000', 10); // 10% default
 
     this.positions = new Map(); // mint -> position
     this.mcapCache = new Map(); // mint -> { value, ts }
