@@ -52,6 +52,9 @@ function App() {
   const [checkingPayment, setCheckingPayment] = useState(false);
   const [paymentTimeout, setPaymentTimeout] = useState(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [tokenGateVerifying, setTokenGateVerifying] = useState(false);
+  const [tokenGateTimeout, setTokenGateTimeout] = useState(null);
+  const [tokenGateRetryCount, setTokenGateRetryCount] = useState(0);
   const [tokenGateInfo, setTokenGateInfo] = useState({ enabled: false, mint: null, minAmount: 0 });
   const [landingTheme, setLandingTheme] = useState(() => {
     try {
@@ -288,6 +291,68 @@ function App() {
     setPaymentTimeout(null);
     setCheckingPayment(false);
     setRetryCount(0);
+  };
+
+  const handleVerifyTokenGate = async () => {
+    setAuthError('');
+    setTokenGateVerifying(true);
+    setTokenGateRetryCount(0);
+    const deviceId = deviceIdRef.current || getOrCreateDeviceId();
+    
+    // Set a timeout countdown (30 seconds max per attempt)
+    let timeLeft = 30;
+    setTokenGateTimeout(timeLeft);
+    const countdownInterval = setInterval(() => {
+      timeLeft--;
+      setTokenGateTimeout(timeLeft);
+      if (timeLeft <= 0) {
+        clearInterval(countdownInterval);
+      }
+    }, 1000);
+    
+    try {
+      const res = await fetch('/api/auth/token-gate/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          wallet: licenseKey.trim(), 
+          deviceId,
+          timeoutMs: 30000 // 30 seconds
+        }),
+      });
+      
+      clearInterval(countdownInterval);
+      setTokenGateTimeout(null);
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Token payment not found');
+      
+      localStorage.setItem('sessionToken', data.sessionToken);
+      setAuthState({
+        loading: false,
+        authenticated: true,
+        wallet: data.wallet,
+        plan: data.plan,
+        expiresAt: data.expiresAt,
+        sessionToken: data.sessionToken,
+      });
+      setShowAuthModal(false);
+      setLicenseKey('');
+      setTokenGateRetryCount(0);
+    } catch (error) {
+      clearInterval(countdownInterval);
+      setTokenGateTimeout(null);
+      
+      const errorMsg = error.message || 'Token payment not found';
+      if (errorMsg.includes('not found') || errorMsg.includes('timeout')) {
+        setAuthError('Token payment not detected yet. Please ensure you sent 1 $CLAUDECASH token to the correct wallet, then try again.');
+        setTokenGateRetryCount(prev => prev + 1);
+      } else {
+        setAuthError(errorMsg);
+      }
+    } finally {
+      setTokenGateVerifying(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -1063,54 +1128,110 @@ function App() {
                 <option value="month">Monthly</option>
                 {tokenGateInfo.enabled && <option value="holder">Holder (auto-check)</option>}
               </select>
-              <div className="auth-payment">
-                <div className="auth-payment-title">Payment Options</div>
-                <div className="auth-payment-text">
-                  Weekly: 0.25 SOL · Monthly: 0.5 SOL
-                </div>
-                {paymentInfo && (
+              {licensePlan === 'holder' && tokenGateInfo.enabled ? (
+                <div className="auth-payment">
+                  <div className="auth-payment-title">Token Gate Verification</div>
+                  <div className="auth-payment-text">
+                    Send 1 $CLAUDECASH token to verify wallet ownership
+                  </div>
                   <div className="auth-payment-details">
                     <div className="payment-instruction">
-                      <strong>Step 1:</strong> Send exactly <strong>{paymentInfo.amountSol} SOL</strong> to:
+                      <strong>Step 1:</strong> Send exactly <strong>1 $CLAUDECASH</strong> token to:
                     </div>
                     <div className="auth-payment-wallet" onClick={() => {
-                      navigator.clipboard.writeText(paymentInfo.tradingWallet);
-                      alert('Wallet address copied!');
+                      if (tokenGateInfo.tradingWallet) {
+                        navigator.clipboard.writeText(tokenGateInfo.tradingWallet);
+                        alert('Wallet address copied!');
+                      }
                     }}>
-                      {paymentInfo.tradingWallet}
+                      {tokenGateInfo.tradingWallet || 'Loading...'}
                       <span className="copy-hint">Click to copy</span>
                     </div>
                     <div className="payment-instruction">
-                      <strong>Step 2:</strong> After sending, click "I Paid" below
+                      <strong>Step 2:</strong> After sending, click "Verify Token Payment" below
                     </div>
-                    {checkingPayment && paymentTimeout && (
+                    {tokenGateVerifying && tokenGateTimeout && (
                       <div className="payment-checking">
                         <div className="checking-spinner"></div>
-                        <span>Checking for payment... ({paymentTimeout}s)</span>
+                        <span>Checking for token payment... ({tokenGateTimeout}s)</span>
                       </div>
                     )}
-                    {retryCount > 0 && !checkingPayment && (
+                    {tokenGateRetryCount > 0 && !tokenGateVerifying && (
                       <div className="payment-retry-info">
-                        Attempt {retryCount}. If you sent payment, it may take a moment to confirm on-chain.
+                        Attempt {tokenGateRetryCount}. If you sent the token, it may take a moment to confirm on-chain.
                       </div>
                     )}
                   </div>
-                )}
-              </div>
+                </div>
+              ) : (
+                <div className="auth-payment">
+                  <div className="auth-payment-title">Payment Options</div>
+                  <div className="auth-payment-text">
+                    Weekly: 0.25 SOL · Monthly: 0.5 SOL
+                  </div>
+                  {paymentInfo && (
+                    <div className="auth-payment-details">
+                      <div className="payment-instruction">
+                        <strong>Step 1:</strong> Send exactly <strong>{paymentInfo.amountSol} SOL</strong> to:
+                      </div>
+                      <div className="auth-payment-wallet" onClick={() => {
+                        navigator.clipboard.writeText(paymentInfo.tradingWallet);
+                        alert('Wallet address copied!');
+                      }}>
+                        {paymentInfo.tradingWallet}
+                        <span className="copy-hint">Click to copy</span>
+                      </div>
+                      <div className="payment-instruction">
+                        <strong>Step 2:</strong> After sending, click "I Paid" below
+                      </div>
+                      {checkingPayment && paymentTimeout && (
+                        <div className="payment-checking">
+                          <div className="checking-spinner"></div>
+                          <span>Checking for payment... ({paymentTimeout}s)</span>
+                        </div>
+                      )}
+                      {retryCount > 0 && !checkingPayment && (
+                        <div className="payment-retry-info">
+                          Attempt {retryCount}. If you sent payment, it may take a moment to confirm on-chain.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {authError && (
                 <div className="auth-error">
                   {authError}
-                  {retryCount > 0 && retryCount < 3 && (
-                    <div className="error-help">
-                      • Verify you sent the exact amount ({paymentInfo?.amountSol} SOL)<br/>
-                      • Check the transaction completed on-chain<br/>
-                      • Wait 30-60 seconds after sending before clicking "I Paid"
-                    </div>
-                  )}
-                  {retryCount >= 3 && (
-                    <div className="error-help">
-                      Still not working? Contact support with your wallet address and transaction signature.
-                    </div>
+                  {licensePlan === 'holder' && tokenGateInfo.enabled ? (
+                    <>
+                      {tokenGateRetryCount > 0 && tokenGateRetryCount < 3 && (
+                        <div className="error-help">
+                          • Verify you sent exactly 1 $CLAUDECASH token<br/>
+                          • Check the transaction completed on-chain<br/>
+                          • Wait 30-60 seconds after sending before clicking "Verify Token Payment"
+                        </div>
+                      )}
+                      {tokenGateRetryCount >= 3 && (
+                        <div className="error-help">
+                          Still not working? Contact support with your wallet address and transaction signature.
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {retryCount > 0 && retryCount < 3 && (
+                        <div className="error-help">
+                          • Verify you sent the exact amount ({paymentInfo?.amountSol} SOL)<br/>
+                          • Check the transaction completed on-chain<br/>
+                          • Wait 30-60 seconds after sending before clicking "I Paid"
+                        </div>
+                      )}
+                      {retryCount >= 3 && (
+                        <div className="error-help">
+                          Still not working? Contact support with your wallet address and transaction signature.
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -1121,7 +1242,11 @@ function App() {
                 <button className="auth-activate" onClick={handleActivate}>
                   Activate Existing
                 </button>
-                {!paymentInfo ? (
+                {licensePlan === 'holder' && tokenGateInfo.enabled ? (
+                  <button className="auth-primary" onClick={handleVerifyTokenGate} disabled={tokenGateVerifying || !licenseKey.trim()}>
+                    {tokenGateVerifying ? `Verifying (${tokenGateTimeout}s)` : 'Verify Token Payment'}
+                  </button>
+                ) : !paymentInfo ? (
                   <button className="auth-primary" onClick={handleStartPayment}>
                     New Payment
                   </button>

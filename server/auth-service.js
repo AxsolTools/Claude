@@ -171,6 +171,64 @@ export class AuthService {
     return null;
   }
 
+  async findMatchingTokenGatePayment({ wallet, usedSignatures }) {
+    if (!this.autoTokenGateEnabled || !this.tokenGateMint) return null;
+    const tradingWallet = this.tradingWallet;
+    const tradingPubkey = new PublicKey(tradingWallet);
+    const tokenMintPubkey = new PublicKey(this.tokenGateMint);
+    const used = usedSignatures || new Set();
+
+    const sigs = await this.connection.getSignaturesForAddress(tradingPubkey, { limit: 100 });
+    for (const sig of sigs) {
+      if (!sig?.signature || used.has(sig.signature)) continue;
+      const tx = await this.connection.getParsedTransaction(sig.signature, { maxSupportedTransactionVersion: 0 });
+      if (!tx?.transaction?.message?.instructions) continue;
+
+      const instructions = tx.transaction.message.instructions;
+      for (const ix of instructions) {
+        // Check for SPL token transfer
+        if (ix?.programId?.toBase58() === 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA' || 
+            ix?.programId?.toBase58() === 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb') {
+          const parsed = ix?.parsed;
+          if (parsed?.type === 'transfer' || parsed?.type === 'transferChecked') {
+            const info = parsed.info || {};
+            const destination = info.destination || info.to;
+            const source = info.authority || info.source || info.from;
+            const mint = info.mint || parsed.mint;
+            
+            // Verify it's the correct token mint and destination
+            if (mint !== this.tokenGateMint && mint !== tokenMintPubkey.toBase58()) continue;
+            if (destination !== tradingWallet) continue;
+            
+            // Verify source matches the wallet (could be authority or source)
+            const sourceStr = typeof source === 'string' ? source : source?.toBase58?.();
+            if (sourceStr !== wallet) {
+              // Check accountKeys in transaction for the wallet
+              const accountKeys = tx?.transaction?.message?.accountKeys || [];
+              const walletInTx = accountKeys.some(acc => {
+                const addr = typeof acc === 'string' ? acc : acc?.pubkey?.toBase58?.() || acc?.toBase58?.();
+                return addr === wallet;
+              });
+              if (!walletInTx) continue;
+            }
+
+            // Verify amount is at least 1 token (with some tolerance)
+            const amount = Number(info.amount || info.tokenAmount?.amount || 0);
+            const decimals = Number(info.tokenAmount?.decimals || 0);
+            const uiAmount = decimals > 0 ? amount / Math.pow(10, decimals) : amount;
+            if (uiAmount < 0.9) continue; // At least 0.9 tokens (allowing for rounding)
+
+            const paidAt = sig.blockTime
+              ? new Date(sig.blockTime * 1000).toISOString()
+              : new Date().toISOString();
+            return { signature: sig.signature, paidAt, amount: uiAmount };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   async startPayment({ wallet, plan }) {
     const readiness = this.ensureReady();
     if (!readiness.ok) return { ok: false, error: readiness.error };
@@ -211,6 +269,175 @@ export class AuthService {
     };
   }
 
+  async verifyTokenGatePayment({ wallet, deviceId }) {
+    const readiness = this.ensureReady();
+    if (!readiness.ok) return { ok: false, error: readiness.error };
+    if (!this.autoTokenGateEnabled || !this.tokenGateMint) {
+      return { ok: false, error: 'Token gate not enabled.' };
+    }
+
+    const normalizedWallet = (wallet || '').trim();
+    if (!WALLET_REGEX.test(normalizedWallet)) {
+      return { ok: false, error: 'Invalid wallet address.' };
+    }
+    if (!deviceId) {
+      return { ok: false, error: 'Missing device id.' };
+    }
+
+    // Check for used token gate payments (stored in license_payments with plan='holder')
+    const { data: usedPayments } = await this.client
+      .from('license_payments')
+      .select('signature')
+      .eq('wallet', normalizedWallet)
+      .eq('plan', 'holder')
+      .eq('status', 'paid');
+    const usedSignatures = new Set((usedPayments || []).map((p) => p.signature));
+
+    const match = await this.findMatchingTokenGatePayment({
+      wallet: normalizedWallet,
+      usedSignatures,
+    });
+
+    if (!match) {
+      return { ok: false, error: 'Token payment not found yet. Send 1 $CLAUDECASH token to verify ownership.' };
+    }
+
+    // Record the payment
+    await this.client
+      .from('license_payments')
+      .insert({
+        wallet: normalizedWallet,
+        plan: 'holder',
+        amount_sol: 0, // Not SOL, but token
+        status: 'paid',
+        signature: match.signature,
+        paid_at: match.paidAt,
+        created_at: new Date().toISOString(),
+      })
+      .select();
+
+    // Verify they still hold minimum tokens
+    const tokenGateCheck = await this.checkTokenGateEligibility(normalizedWallet);
+    if (!tokenGateCheck.eligible) {
+      return { ok: false, error: `Wallet does not hold minimum ${this.tokenGateMinAmount} tokens.` };
+    }
+
+    // Activate license
+    const now = new Date();
+    const sessionToken = crypto.randomUUID();
+    const { data: existingLicense } = await this.client
+      .from('licenses')
+      .select('*')
+      .eq('wallet', normalizedWallet)
+      .maybeSingle();
+
+    await this.client
+      .from('licenses')
+      .upsert({
+        wallet: normalizedWallet,
+        plan: 'holder',
+        activated_at: existingLicense?.activated_at || now.toISOString(),
+        expires_at: null, // Holder plan doesn't expire
+        device_id: deviceId,
+        session_token: sessionToken,
+        last_seen_at: now.toISOString(),
+      }, { onConflict: 'wallet' });
+
+    return {
+      ok: true,
+      sessionToken,
+      wallet: normalizedWallet,
+      plan: 'holder',
+      expiresAt: null,
+    };
+  }
+
+  async verifyTokenGatePaymentRealtime({ wallet, deviceId, timeoutMs = 60000 }) {
+    const readiness = this.ensureReady();
+    if (!readiness.ok) return { ok: false, error: readiness.error };
+    if (!this.autoTokenGateEnabled || !this.tokenGateMint) {
+      return { ok: false, error: 'Token gate not enabled.' };
+    }
+
+    const normalizedWallet = (wallet || '').trim();
+    if (!WALLET_REGEX.test(normalizedWallet)) {
+      return { ok: false, error: 'Invalid wallet address.' };
+    }
+    if (!deviceId) {
+      return { ok: false, error: 'Missing device id.' };
+    }
+
+    // Check for used token gate payments
+    const { data: usedPayments } = await this.client
+      .from('license_payments')
+      .select('signature')
+      .eq('wallet', normalizedWallet)
+      .eq('plan', 'holder')
+      .eq('status', 'paid');
+    const usedSignatures = new Set((usedPayments || []).map((p) => p.signature));
+
+    // First quick check
+    let match = await this.findMatchingTokenGatePayment({
+      wallet: normalizedWallet,
+      usedSignatures,
+    });
+
+    if (!match) {
+      // Wait for transaction with realtime monitoring
+      match = await this.waitForTokenGatePayment({
+        wallet: normalizedWallet,
+        usedSignatures,
+        timeoutMs,
+      });
+    }
+
+    if (!match) {
+      return { ok: false, error: 'Token payment not found yet. Send 1 $CLAUDECASH token to verify ownership.' };
+    }
+
+    return this.verifyTokenGatePayment({ wallet, deviceId });
+  }
+
+  async waitForTokenGatePayment({ wallet, usedSignatures, timeoutMs = 60000 }) {
+    const tradingPubkey = new PublicKey(this.tradingWallet);
+    const normalizedWallet = wallet;
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const cleanup = (subId) => {
+        if (settled) return;
+        settled = true;
+        if (subId != null) {
+          this.connection.removeOnLogsListener(subId).catch(() => {});
+        }
+      };
+
+      const timer = setTimeout(() => {
+        cleanup(subId);
+        resolve(null);
+      }, timeoutMs);
+
+      let subId = null;
+      this.connection.onLogs(tradingPubkey, async (logInfo) => {
+        if (settled) return;
+        const match = await this.findMatchingTokenGatePayment({
+          wallet: normalizedWallet,
+          usedSignatures,
+        });
+        if (!match) return;
+        clearTimeout(timer);
+        cleanup(subId);
+        resolve(match);
+      }, 'confirmed').then((id) => {
+        subId = id;
+      }).catch(() => {
+        clearTimeout(timer);
+        cleanup(subId);
+        resolve(null);
+      });
+    });
+  }
+
   async activateLicense({ wallet, plan, deviceId }) {
     const readiness = this.ensureReady();
     if (!readiness.ok) return { ok: false, error: readiness.error };
@@ -240,29 +467,46 @@ export class AuthService {
     const now = new Date();
     const existingExpired = existing?.expires_at && new Date(existing.expires_at) <= now;
     
-    // Check token gate eligibility (automatic authorization for holders)
+    // Check token gate eligibility (balance check only - verification required separately)
     const tokenGateCheck = await this.checkTokenGateEligibility(normalizedWallet);
     const isTokenGateEligible = tokenGateCheck.eligible;
 
     // Allow admin plan activation without existing license
     const isAdminRequest = requestedPlan === 'admin' || envLicense?.plan === 'admin' || existing?.plan === 'admin';
-    const isHolderRequest = requestedPlan === 'holder' || isTokenGateEligible;
+    const isHolderRequest = requestedPlan === 'holder';
+
+    // For holder plan, require token gate payment verification (not just balance check)
+    if (isHolderRequest && this.autoTokenGateEnabled) {
+      // Check if token gate payment was already verified
+      const { data: tokenGatePayment } = await this.client
+        .from('license_payments')
+        .select('signature')
+        .eq('wallet', normalizedWallet)
+        .eq('plan', 'holder')
+        .eq('status', 'paid')
+        .maybeSingle();
+      
+      // If no verified payment AND no existing holder license, require verification
+      if (!tokenGatePayment && existing?.plan !== 'holder') {
+        return { ok: false, error: 'Token gate payment verification required. Send 1 $CLAUDECASH token to verify ownership.' };
+      }
+    }
 
     // If expired and not admin/holder, reject
-    if (existingExpired && existing?.plan !== 'admin' && !isTokenGateEligible) {
+    if (existingExpired && existing?.plan !== 'admin' && existing?.plan !== 'holder') {
       return { ok: false, error: 'License expired.' };
     }
 
-    // If no existing license and no env license and not admin and not token gate eligible
-    if (!existing && !envLicense && !isAdminRequest && !isTokenGateEligible) {
+    // If no existing license and no env license and not admin and not holder (with verified payment)
+    if (!existing && !envLicense && !isAdminRequest && !(isHolderRequest && existing?.plan === 'holder')) {
       return { ok: false, error: 'License key not found.' };
     }
 
-    // Determine the plan: admin > holder (if eligible) > existing/env > requested
+    // Determine the plan: admin > holder (if verified) > existing/env > requested
     let allowedPlan = envLicense?.plan || existing?.plan || requestedPlan;
     
-    // If token gate eligible, upgrade to holder plan (unless admin)
-    if (isTokenGateEligible && allowedPlan !== 'admin') {
+    // If requesting holder and token gate eligible, upgrade to holder plan (unless admin)
+    if (isHolderRequest && isTokenGateEligible && allowedPlan !== 'admin') {
       allowedPlan = 'holder';
     }
     
@@ -548,6 +792,7 @@ export class AuthService {
       enabled: this.autoTokenGateEnabled,
       mint: this.tokenGateMint,
       minAmount: this.tokenGateMinAmount,
+      tradingWallet: this.tradingWallet,
     };
   }
 }

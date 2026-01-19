@@ -83,6 +83,16 @@ app.post('/api/auth/payment/confirm', async (req, res) => {
   return res.json(result);
 });
 
+app.post('/api/auth/token-gate/verify', async (req, res) => {
+  const { wallet, deviceId } = req.body || {};
+  const timeoutMs = Number.parseInt(req.body?.timeoutMs || '60000', 10);
+  const result = await authService.verifyTokenGatePaymentRealtime({ wallet, deviceId, timeoutMs });
+  if (!result.ok) {
+    return res.status(400).json({ error: result.error });
+  }
+  return res.json(result);
+});
+
 app.post('/api/admin/revoke', async (req, res) => {
   const sessionToken = extractSession(req);
   const deviceId = req.body?.deviceId || req.query?.deviceId || null;
