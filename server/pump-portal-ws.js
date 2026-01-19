@@ -12,7 +12,8 @@ export class PumpPortalWebSocket extends EventEmitter {
     this.ws = null;
     this.reconnectDelayMs = 5000;
     this.shouldReconnect = true;
-    this.mcapCache = new Map(); // mint -> { mcap, ts }
+    // mint -> { mcapUsd?: number|null, mcapSol?: number|null, ts: number }
+    this.mcapCache = new Map();
     this.mcapCacheTtl = 5000; // 5 seconds for bonding curve data
   }
 
@@ -88,11 +89,21 @@ export class PumpPortalWebSocket extends EventEmitter {
 
     const mint = this.extractMint(message);
     const migrationState = this.extractMigrationState(message);
-    const mcap = this.extractMarketCap(message);
+    const mcapUsd = this.extractMarketCapUsd(message);
+    const mcapSol = this.extractMarketCapSol(message);
 
     // Cache market cap from trade messages
-    if (mint && mcap && Number.isFinite(mcap) && mcap > 0) {
-      this.mcapCache.set(mint, { mcap, ts: Date.now() });
+    if (mint) {
+      const nextUsd = Number.isFinite(mcapUsd) && mcapUsd > 0 ? mcapUsd : null;
+      const nextSol = Number.isFinite(mcapSol) && mcapSol > 0 ? mcapSol : null;
+      if (nextUsd || nextSol) {
+        const prev = this.mcapCache.get(mint) || { mcapUsd: null, mcapSol: null, ts: 0 };
+        this.mcapCache.set(mint, {
+          mcapUsd: nextUsd ?? prev.mcapUsd ?? null,
+          mcapSol: nextSol ?? prev.mcapSol ?? null,
+          ts: Date.now(),
+        });
+      }
     }
 
     if (migrationState !== null && mint) {
@@ -164,14 +175,8 @@ export class PumpPortalWebSocket extends EventEmitter {
     return null;
   }
 
-  extractMarketCap(message) {
-    // IMPORTANT:
+  extractMarketCapUsd(message) {
     // We treat "mcap" throughout the app as USD market cap (see UI `$` formatting + stop-loss logic).
-    // PumpPortal frequently provides `marketCapSol` / `market_cap_sol` which is *SOL-denominated*.
-    // If we mistakenly feed SOL-mcap into USD logic, it can look like a -99% crash and prematurely trigger sells.
-    //
-    // So: only accept USD market cap fields here. If unavailable, return null and let other sources
-    // (Helius/DexScreener) provide a USD market cap.
     return (
       message?.usd_market_cap ??
       message?.usdMarketCap ??
@@ -181,7 +186,18 @@ export class PumpPortalWebSocket extends EventEmitter {
     );
   }
 
-  getMarketCap(mint) {
+  extractMarketCapSol(message) {
+    // SOL-denominated market cap (convert to USD using SOL/USD).
+    return (
+      message?.marketCapSol ??
+      message?.market_cap_sol ??
+      message?.data?.marketCapSol ??
+      message?.data?.market_cap_sol ??
+      null
+    );
+  }
+
+  getMarketCapUsd(mint) {
     if (!mint) return null;
     const cached = this.mcapCache.get(mint);
     if (!cached) return null;
@@ -189,6 +205,23 @@ export class PumpPortalWebSocket extends EventEmitter {
       this.mcapCache.delete(mint);
       return null;
     }
-    return cached.mcap;
+    return cached.mcapUsd ?? null;
+  }
+
+  getMarketCapSol(mint) {
+    if (!mint) return null;
+    const cached = this.mcapCache.get(mint);
+    if (!cached) return null;
+    if (Date.now() - cached.ts > this.mcapCacheTtl) {
+      this.mcapCache.delete(mint);
+      return null;
+    }
+    return cached.mcapSol ?? null;
+  }
+
+  // Back-compat: keep method name used elsewhere.
+  getMarketCap(mint) {
+    if (!mint) return null;
+    return this.getMarketCapUsd(mint);
   }
 }

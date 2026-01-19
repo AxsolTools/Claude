@@ -239,10 +239,24 @@ export class TradingEngine extends EventEmitter {
       // Industrial standard: auto-detect migration state and use appropriate source
       // 1. Try PumpPortal WebSocket cache first (realtime trade data)
       if (this.pumpPortalWs) {
-        const pumpMcap = this.pumpPortalWs.getMarketCap(mint);
-        if (Number.isFinite(pumpMcap) && pumpMcap > 0) {
-          this.mcapCache.set(mint, { value: pumpMcap, ts: Date.now() });
-          return pumpMcap;
+        // Prefer USD mcap if available; otherwise convert SOL mcap using SOL/USD.
+        const pumpUsd =
+          this.pumpPortalWs.getMarketCapUsd?.(mint) ??
+          this.pumpPortalWs.getMarketCap?.(mint) ??
+          null;
+        if (Number.isFinite(pumpUsd) && pumpUsd > 0) {
+          this.mcapCache.set(mint, { value: pumpUsd, ts: Date.now() });
+          return pumpUsd;
+        }
+
+        const pumpSol = this.pumpPortalWs.getMarketCapSol?.(mint) ?? null;
+        if (Number.isFinite(pumpSol) && pumpSol > 0) {
+          const solUsd = await this.helius.getSolUsdPrice();
+          const pumpConverted = Number.isFinite(solUsd) && solUsd > 0 ? pumpSol * solUsd : null;
+          if (Number.isFinite(pumpConverted) && pumpConverted > 0) {
+            this.mcapCache.set(mint, { value: pumpConverted, ts: Date.now() });
+            return pumpConverted;
+          }
         }
       }
       
