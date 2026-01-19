@@ -6,12 +6,18 @@ import { TokenDetail } from './components/TokenDetail';
 function App() {
   const [tokens, setTokens] = useState([]);
   const [connected, setConnected] = useState(false);
-  const [selectedToken, setSelectedToken] = useState(null);
+  const [selectedTokenAddress, setSelectedTokenAddress] = useState(null);
   const tabs = [
     { key: 'gambles', label: 'Gambles', source: 'meme_radar', firstLabel: 'First Called' },
     { key: 'claudecash', label: 'ClaudeCash', source: 'print_scan', firstLabel: 'First' },
   ];
-  const [activeTab, setActiveTab] = useState('gambles');
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      return localStorage.getItem('activeTab') || 'gambles';
+    } catch {
+      return 'gambles';
+    }
+  });
   const [highlighted, setHighlighted] = useState({ meme_radar: null, print_scan: null });
   const [activity, setActivity] = useState([]);
   const [balanceSol, setBalanceSol] = useState(0);
@@ -100,8 +106,13 @@ function App() {
         switch (message.type) {
           case 'init':
           case 'refresh':
-            setTokens(message.data.tokens || []);
-            claudeCashSeenRef.current = hydrateClaudeCashSeen(message.data.tokens || []);
+            setTokens((prev) => {
+              const incoming = message.data.tokens || [];
+              const prevByAddress = new Map((prev || []).map((t) => [t.address, t]));
+              const merged = incoming.map((t) => ({ ...(prevByAddress.get(t.address) || {}), ...t }));
+              claudeCashSeenRef.current = hydrateClaudeCashSeen(merged);
+              return merged;
+            });
             if (message.data.trading?.activityLog) {
               setActivity(message.data.trading.activityLog);
             }
@@ -214,6 +225,11 @@ function App() {
     }
     return token.first_called || token.first_seen || token.created_at || token.first_seen_local;
   };
+
+  const selectedToken = (() => {
+    if (!selectedTokenAddress) return null;
+    return (tokens || []).find((t) => t.address === selectedTokenAddress) || null;
+  })();
 
   // Filter tokens based on active tab
   const getFilteredTokens = () => {
@@ -529,7 +545,14 @@ function App() {
             <button
               key={tab.key}
               className={`tab-btn ${activeTab === tab.key ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => {
+                setActiveTab(tab.key);
+                try {
+                  localStorage.setItem('activeTab', tab.key);
+                } catch {
+                  // Ignore storage errors
+                }
+              }}
             >
               {tab.label}
             </button>
@@ -543,7 +566,7 @@ function App() {
               return (
                 <TokenStream 
                   tokens={getFilteredTokens()} 
-                  onSelect={setSelectedToken}
+                  onSelect={(token) => setSelectedTokenAddress(token?.address || null)}
                   selectedId={selectedToken?.address}
                   highlightedId={current?.source === 'meme_radar' ? highlighted.meme_radar : highlighted.print_scan}
                   label={current?.firstLabel}
@@ -618,7 +641,7 @@ function App() {
             <div className="detail-panel">
               <TokenDetail 
                 token={selectedToken} 
-                onClose={() => setSelectedToken(null)}
+                onClose={() => setSelectedTokenAddress(null)}
               />
             </div>
           )}

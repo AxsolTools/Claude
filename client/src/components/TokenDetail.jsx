@@ -29,6 +29,12 @@ export function TokenDetail({ token, onClose }) {
     if (mcap >= 1000) return '$' + (mcap / 1000).toFixed(1) + 'K';
     return '$' + mcap.toFixed(0);
   };
+  const currentCap = (t) =>
+    t?.realtime_mcap ||
+    t?.realtimeMcap ||
+    t?.latest_mcap ||
+    t?.marketcap ||
+    t?.current_mc;
 
   const copyAddress = () => {
     navigator.clipboard.writeText(token.address);
@@ -70,7 +76,7 @@ export function TokenDetail({ token, onClose }) {
         <div className="metrics-grid">
           <div className="metric">
             <label>Market Cap</label>
-            <div className="value">{formatMcap(token.latest_mcap)}</div>
+            <div className="value">{formatMcap(currentCap(token))}</div>
           </div>
           <div className="metric">
             <label>Initial</label>

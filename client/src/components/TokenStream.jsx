@@ -48,7 +48,12 @@ export function TokenStream({ tokens, onSelect, selectedId, highlightedId, label
     }
     return token.initial_mcap || token.initial_market_cap || token.initial_mc || token.first_called_mcap;
   };
-  const currentCap = (token) => token.latest_mcap || token.marketcap || token.current_mc;
+  const currentCap = (token) =>
+    token.realtime_mcap ||
+    token.realtimeMcap ||
+    token.latest_mcap ||
+    token.marketcap ||
+    token.current_mc;
   const athCap = (token) => token.ath_mcap || token.ath_market_cap || token.ath_mc;
   const isAthAboveInitial = (token) => {
     const initial = initialCap(token);

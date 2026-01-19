@@ -1,10 +1,21 @@
 import { useState, useEffect } from 'react';
 
 export function Header({ connected, soundEnabled, onToggleSound }) {
-  const [theme, setTheme] = useState('light');
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem('theme') || 'light';
+    } catch {
+      return 'light';
+    }
+  });
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
+    try {
+      localStorage.setItem('theme', theme);
+    } catch {
+      // Ignore storage errors
+    }
   }, [theme]);
 
   const toggleTheme = () => {

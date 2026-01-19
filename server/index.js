@@ -64,6 +64,10 @@ const tradingEngine = new TradingEngine({ tokenStore });
 tradingEngine.start();
 
 const VISIBLE_REFRESH_LIMIT = Number.parseInt(process.env.VISIBLE_REFRESH_LIMIT || '15', 10);
+const REALTIME_MCAP_BROADCAST_INTERVAL_MS = Number.parseInt(process.env.REALTIME_MCAP_BROADCAST_INTERVAL_MS || '4000', 10);
+const REALTIME_MCAP_BROADCAST_LIMIT = Number.parseInt(process.env.REALTIME_MCAP_BROADCAST_LIMIT || '60', 10);
+const REALTIME_MCAP_BROADCAST_CONCURRENCY = Number.parseInt(process.env.REALTIME_MCAP_BROADCAST_CONCURRENCY || '4', 10);
+const REALTIME_MCAP_BROADCAST_MIN_PCT_CHANGE = Number.parseFloat(process.env.REALTIME_MCAP_BROADCAST_MIN_PCT_CHANGE || '0.5'); // %
 
 const pumpPortalWs = new PumpPortalWebSocket({
   url: process.env.PUMP_PORTAL_WS_URL || 'wss://pumpportal.fun/api/data',
@@ -166,6 +170,46 @@ const refreshVisibleTokens = async () => {
   }
 };
 
+const mapWithConcurrency = async (items, concurrency, fn) => {
+  const list = Array.isArray(items) ? items : [];
+  const limit = Math.max(1, Number.parseInt(concurrency, 10) || 1);
+  const results = new Array(list.length);
+  let idx = 0;
+  const worker = async () => {
+    while (true) {
+      const i = idx++;
+      if (i >= list.length) return;
+      results[i] = await fn(list[i], i);
+    }
+  };
+  const workers = Array.from({ length: Math.min(limit, list.length) }, worker);
+  await Promise.all(workers);
+  return results;
+};
+
+const attachRealtimeMcapField = async (tokens, { limit = 30 } = {}) => {
+  const list = Array.isArray(tokens) ? tokens : [];
+  const capped = list.slice(0, Math.max(0, limit));
+  const withMcap = await mapWithConcurrency(
+    capped,
+    REALTIME_MCAP_BROADCAST_CONCURRENCY,
+    async (token) => {
+      const mint = token?.address || token?.mint || token?.token_address;
+      if (!mint || !tradingEngine?.getRealtimeMcap) return token;
+      try {
+        const realtimeMcap = await tradingEngine.getRealtimeMcap(mint);
+        if (!Number.isFinite(realtimeMcap) || realtimeMcap <= 0) return token;
+        // Important: keep stored/latest mcap intact; publish helius mcap separately.
+        return { ...token, realtime_mcap: realtimeMcap, realtime_mcap_ts: Date.now() };
+      } catch {
+        return token;
+      }
+    }
+  );
+  // Preserve original order; only first `limit` tokens get realtime fields.
+  return [...withMcap, ...list.slice(capped.length)];
+};
+
 // Track connected WebSocket clients
 const clients = new Set();
 
@@ -175,20 +219,10 @@ wss.on('connection', async (ws) => {
   
   // Send current state on connect (always)
   await refreshVisibleTokens();
+  // Never compute realtime mcap for the entire DB on connect (rate limits + inconsistent mixes).
+  // We can still send the full snapshot; realtime mcap will only be attached for top-N and then streamed.
   const refreshTokens = tokenStore.getAllTokens();
-  const tokensWithRealtimeMcap = await Promise.all(
-    refreshTokens.map(async (token) => {
-      const mint = token?.address || token?.mint || token?.token_address;
-      if (!mint || !tradingEngine?.getRealtimeMcap) return token;
-      try {
-        const realtimeMcap = await tradingEngine.getRealtimeMcap(mint);
-        if (!Number.isFinite(realtimeMcap) || realtimeMcap <= 0) return token;
-        return { ...token, latest_mcap: realtimeMcap };
-      } catch {
-        return token;
-      }
-    })
-  );
+  const tokensWithRealtimeMcap = await attachRealtimeMcapField(refreshTokens, { limit: REALTIME_MCAP_BROADCAST_LIMIT });
   const snapshot = {
     type: 'refresh',
     data: {
@@ -423,19 +457,7 @@ async function pollStalkFun() {
     if (!initialized) {
       await refreshVisibleTokens();
       const refreshTokens = tokenStore.getAllTokens();
-      const tokensWithRealtimeMcap = await Promise.all(
-        refreshTokens.map(async (token) => {
-          const mint = token?.address || token?.mint || token?.token_address;
-          if (!mint || !tradingEngine?.getRealtimeMcap) return token;
-          try {
-            const realtimeMcap = await tradingEngine.getRealtimeMcap(mint);
-            if (!Number.isFinite(realtimeMcap) || realtimeMcap <= 0) return token;
-            return { ...token, latest_mcap: realtimeMcap };
-          } catch {
-            return token;
-          }
-        })
-      );
+      const tokensWithRealtimeMcap = await attachRealtimeMcapField(refreshTokens, { limit: REALTIME_MCAP_BROADCAST_LIMIT });
       broadcast({
         type: 'refresh',
         data: {
@@ -482,9 +504,41 @@ async function pollStalkFun() {
   }
 }
 
+// Stream realtime market caps periodically (Helius) without forcing full feed resets.
+const lastRealtimeBroadcast = new Map(); // mint -> last mcap
+async function broadcastRealtimeMcaps() {
+  if (!tradingEngine?.getRealtimeMcap) return;
+  if (clients.size === 0) return;
+  const limit = Number.isFinite(REALTIME_MCAP_BROADCAST_LIMIT) && REALTIME_MCAP_BROADCAST_LIMIT > 0
+    ? REALTIME_MCAP_BROADCAST_LIMIT
+    : 60;
+  const tokens = tokenStore.getTokens({ sort: 'first_seen_local', order: 'desc', limit });
+  const now = Date.now();
+
+  const updates = await mapWithConcurrency(tokens, REALTIME_MCAP_BROADCAST_CONCURRENCY, async (token) => {
+    const mint = token?.address || token?.mint || token?.token_address;
+    if (!mint) return null;
+    const mcap = await tradingEngine.getRealtimeMcap(mint);
+    if (!Number.isFinite(mcap) || mcap <= 0) return null;
+
+    const prev = lastRealtimeBroadcast.get(mint);
+    if (Number.isFinite(prev) && prev > 0) {
+      const pct = Math.abs((mcap - prev) / prev) * 100;
+      if (pct < REALTIME_MCAP_BROADCAST_MIN_PCT_CHANGE) return null;
+    }
+    lastRealtimeBroadcast.set(mint, mcap);
+    return { address: mint, realtime_mcap: mcap, realtime_mcap_ts: now };
+  });
+
+  updates.filter(Boolean).forEach((data) => {
+    broadcast({ type: 'token_update', data });
+  });
+}
+
 // Start polling
 const POLL_INTERVAL = 5000; // 5 seconds
 setInterval(pollStalkFun, POLL_INTERVAL);
+setInterval(broadcastRealtimeMcaps, REALTIME_MCAP_BROADCAST_INTERVAL_MS);
 
 // Initial poll
 setTimeout(pollStalkFun, 1000);

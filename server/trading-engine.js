@@ -37,6 +37,7 @@ export class TradingEngine extends EventEmitter {
 
     this.positions = new Map(); // mint -> position
     this.mcapCache = new Map(); // mint -> { value, ts }
+    this.mcapInFlight = new Map(); // mint -> Promise<number|null>
     this.migrationStateCache = new Map(); // mint -> { state, ts }
     this.tradeCount = 0;
     this.activityLog = [];
@@ -215,6 +216,16 @@ export class TradingEngine extends EventEmitter {
       return cached.value;
     }
 
+    const inflight = this.mcapInFlight.get(mint);
+    if (inflight) {
+      try {
+        return await inflight;
+      } catch {
+        return null;
+      }
+    }
+
+    const computePromise = (async () => {
     const tokenRecord = this.getTokenRecord(mint);
     const isMigrating = this.isTokenMigrating(tokenRecord);
     let price = null;
@@ -233,6 +244,16 @@ export class TradingEngine extends EventEmitter {
 
     this.mcapCache.set(mint, { value: mcap, ts: now });
     return mcap;
+    })();
+
+    this.mcapInFlight.set(mint, computePromise);
+    try {
+      return await computePromise;
+    } finally {
+      if (this.mcapInFlight.get(mint) === computePromise) {
+        this.mcapInFlight.delete(mint);
+      }
+    }
   }
 
   async updatePositionsRealtime() {
@@ -330,7 +351,17 @@ export class TradingEngine extends EventEmitter {
         migrationState,
       });
 
+      // Wait for transaction confirmation before fetching balance
+      if (buyResult?.txid) {
+        await this.waitForConfirmation(buyResult.txid);
+      }
+
       const tokenBalance = await this.getTokenBalance(mint);
+      if (tokenBalance.amount <= 0) {
+        this.log('error', `Buy tx confirmed but token balance is 0 for ${token.symbol || mint.slice(0, 6)}. Position not opened.`);
+        return;
+      }
+
       this.positions.set(mint, {
         mint,
         symbol: token.symbol,
@@ -350,6 +381,7 @@ export class TradingEngine extends EventEmitter {
         mint,
         txid: buyResult?.txid,
         amountSol: this.tradeAmountSol,
+        tokenAmount: tokenBalance.amount,
       });
       this.emitPositions();
       await this.maybeDistribute();
@@ -425,11 +457,25 @@ export class TradingEngine extends EventEmitter {
         (tokenRecord ? this.isTokenMigrating(tokenRecord) : null) ??
         position.isMigrating ??
         null;
-      const balance = await this.getTokenBalance(mint);
-      const sellAmount = Math.floor(balance.amount * (pctToSell / 100));
+
+      // Use stored tokenAmount from position, fallback to fresh fetch
+      let tokenAmount = position.tokenAmount;
+      let tokenDecimals = position.tokenDecimals;
+      if (!tokenAmount || tokenAmount <= 0) {
+        const balance = await this.getTokenBalance(mint);
+        tokenAmount = balance.amount;
+        tokenDecimals = balance.decimals;
+        // Update position with fetched balance for future sells
+        position.tokenAmount = tokenAmount;
+        position.tokenDecimals = tokenDecimals;
+      }
+
+      const sellAmount = Math.floor(tokenAmount * (pctToSell / 100));
 
       if (sellAmount <= 0) {
-        this.log('warn', `No token balance to sell for ${position.symbol || mint.slice(0, 6)}`);
+        this.log('error', `No token balance to sell for ${position.symbol || mint.slice(0, 6)}. Closing position.`);
+        this.positions.delete(mint);
+        this.emitPositions();
         return;
       }
 
@@ -441,21 +487,48 @@ export class TradingEngine extends EventEmitter {
         migrationState,
       });
 
+      // Wait for sell confirmation
+      if (sellResult?.txid) {
+        await this.waitForConfirmation(sellResult.txid);
+      }
+
       this.log('trade', `Exit executed: ${pctToSell}% of ${position.symbol || mint.slice(0, 6)}. Reason: ${reason}`, {
         mint,
         txid: sellResult?.txid,
+        soldAmount: sellAmount,
       });
 
       if (pctToSell >= position.remainingPct) {
         this.positions.delete(mint);
       } else {
         position.remainingPct -= pctToSell;
+        // Update remaining token amount after partial sell
+        position.tokenAmount = Math.floor(tokenAmount * (1 - pctToSell / 100));
       }
-      this.recordPaperProfit(position, pctToSell, reason);
       this.emitPositions();
     } catch (e) {
-      this.log('error', `Live SELL failed: ${e.message}`);
+      this.log('error', `Live SELL failed for ${position.symbol || mint.slice(0, 6)}: ${e.message}`);
     }
+  }
+
+  async waitForConfirmation(txid, maxAttempts = 30) {
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const status = await this.helius.connection.getSignatureStatus(txid);
+        const confirmation = status?.value?.confirmationStatus;
+        if (confirmation === 'confirmed' || confirmation === 'finalized') {
+          return true;
+        }
+        if (status?.value?.err) {
+          throw new Error(`Transaction failed: ${JSON.stringify(status.value.err)}`);
+        }
+      } catch (e) {
+        if (e.message.includes('Transaction failed')) throw e;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    this.log('warn', `Transaction ${txid.slice(0, 8)}... confirmation timeout, proceeding anyway`);
+    return false;
   }
 
   recordPaperProfit(position, pctToSell, reason) {
