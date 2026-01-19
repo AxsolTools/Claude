@@ -586,17 +586,23 @@ export class TradingEngine extends EventEmitter {
         tokenDecimals,
       });
 
-      // Wait for sell confirmation
-      if (sellResult?.txid) {
-        await this.waitForConfirmation(sellResult.txid);
+      // Only proceed if swap succeeded and returned a txid
+      if (!sellResult?.txid) {
+        throw new Error('Swap failed: no transaction ID returned');
       }
 
-      // Track realized profit for live trades
+      // Wait for sell confirmation
+      const confirmed = await this.waitForConfirmation(sellResult.txid);
+      if (!confirmed) {
+        throw new Error('Transaction confirmation timeout');
+      }
+
+      // Track realized profit for live trades (only after confirmed)
       await this.recordLiveProfit(position, pctToSell, reason);
 
       this.log('trade', `Exit executed: ${pctToSell}% of ${position.symbol || mint.slice(0, 6)}. Reason: ${reason}`, {
         mint,
-        txid: sellResult?.txid,
+        txid: sellResult.txid,
         soldAmount: sellAmount,
       });
 
