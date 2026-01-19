@@ -198,8 +198,15 @@ export class AuthService {
       return { ok: false, error: `License plan mismatch (${envLicense.plan}).` };
     }
 
-    if (existing?.device_id && existing.device_id !== deviceId && existing.session_token && existing.plan !== 'admin') {
-      return { ok: false, error: 'License is already active on another device.' };
+    // Block if license is active on a different device (has active session)
+    if (existing?.device_id && existing.device_id !== deviceId && existing.plan !== 'admin') {
+      // Check if the existing session is still active (not expired, has session token)
+      if (existing.session_token) {
+        const isExpired = existing.expires_at && new Date(existing.expires_at) <= new Date();
+        if (!isExpired) {
+          return { ok: false, error: 'License is already active on another device.' };
+        }
+      }
     }
 
     const sessionToken = crypto.randomUUID();
@@ -256,8 +263,15 @@ export class AuthService {
       .eq('wallet', normalizedWallet)
       .maybeSingle();
 
-    if (existingLicense?.device_id && existingLicense.device_id !== deviceId && existingLicense.session_token) {
-      return { ok: false, error: 'License is already active on another device.' };
+    // Block if license is active on a different device
+    if (existingLicense?.device_id && existingLicense.device_id !== deviceId) {
+      // Check if the existing session is still active
+      if (existingLicense.session_token) {
+        const isExpired = existingLicense.expires_at && new Date(existingLicense.expires_at) <= new Date();
+        if (!isExpired) {
+          return { ok: false, error: 'License is already active on another device.' };
+        }
+      }
     }
 
     const { data: usedPayments } = await this.client
