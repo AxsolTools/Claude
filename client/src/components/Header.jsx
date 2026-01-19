@@ -56,6 +56,17 @@ export function Header({ connected, soundEnabled, onToggleSound, authWallet, lic
               )}
             </div>
           )}
+          <a 
+            href="https://x.com/claudecash" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="x-btn"
+            title="Follow us on X"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+            </svg>
+          </a>
           <button className="theme-toggle" onClick={toggleTheme} title="Toggle Theme">
             {theme === 'light' ? '🌙' : '☀️'}
           </button>
@@ -152,6 +163,26 @@ export function Header({ connected, soundEnabled, onToggleSound, authWallet, lic
           border-radius: 6px;
           cursor: pointer;
           font-size: 0.8rem;
+        }
+
+        .x-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 36px;
+          background: transparent;
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
+          color: var(--text-primary);
+          text-decoration: none;
+          transition: all 0.2s ease;
+        }
+
+        .x-btn:hover {
+          background: var(--bg-hover);
+          border-color: var(--accent-primary);
+          color: var(--accent-primary);
         }
         
         .theme-toggle {

@@ -48,6 +48,13 @@ function App() {
   const [authError, setAuthError] = useState('');
   const [paymentInfo, setPaymentInfo] = useState(null);
   const [checkingPayment, setCheckingPayment] = useState(false);
+  const [landingTheme, setLandingTheme] = useState(() => {
+    try {
+      return localStorage.getItem('theme') || 'light';
+    } catch {
+      return 'light';
+    }
+  });
   const deviceIdRef = useRef(null);
   const wsRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
@@ -267,6 +274,15 @@ function App() {
       // Ignore storage errors (private mode, disabled storage, etc.)
     }
   }, [soundEnabled]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', landingTheme);
+    try {
+      localStorage.setItem('theme', landingTheme);
+    } catch {
+      // Ignore storage errors
+    }
+  }, [landingTheme]);
 
   const connectWebSocket = useCallback(() => {
     if (!authState.authenticated || !authState.sessionToken) return;
@@ -627,16 +643,71 @@ function App() {
     );
   }
 
+  const toggleLandingTheme = () => {
+    setLandingTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
+
   if (!authState.authenticated) {
+
     return (
       <div className="auth-landing">
-        <div className="auth-hero">
-          <div className="auth-logo">ClaudeCash</div>
-          <div className="auth-tagline">Real-time on-chain signal intelligence with live trade execution.</div>
-          <div className="auth-description">
-            Track emerging tokens, monitor market caps in real time, and automate execution with
-            industrial-grade reliability. Activate your license key to continue.
+        <div className="landing-header">
+          <div className="landing-logo">
+            <img src="/logo.png" alt="ClaudeCash" className="landing-logo-img" />
+            <span className="landing-logo-text">ClaudeCash</span>
           </div>
+          <div className="landing-header-controls">
+            <a 
+              href="https://x.com/claudecash" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="landing-x-btn"
+              title="Follow us on X"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+              </svg>
+            </a>
+            <button className="landing-theme-toggle" onClick={toggleLandingTheme} title="Toggle Theme">
+              {landingTheme === 'light' ? '🌙' : '☀️'}
+            </button>
+          </div>
+        </div>
+
+        <div className="auth-hero">
+          <h1 className="auth-title">ClaudeCash</h1>
+          <p className="auth-subtitle">Autonomous AI Trading on Solana</p>
+          
+          <div className="auth-content">
+            <p className="auth-intro">
+              ClaudeCash is an AI-powered trading system that identifies high-potential tokens at the perfect moment, minimizing your risk through intelligent signal analysis.
+            </p>
+            
+            <div className="auth-features">
+              <div className="auth-feature">
+                <div className="feature-icon">🎯</div>
+                <h3>Smart Signal Detection</h3>
+                <p>Advanced algorithms analyze on-chain data to identify emerging opportunities before they trend.</p>
+              </div>
+              
+              <div className="auth-feature">
+                <div className="feature-icon">⚡</div>
+                <h3>Automated Execution</h3>
+                <p>ClaudeCash has a dedicated trading wallet that automatically executes calls in real-time with precision timing.</p>
+              </div>
+              
+              <div className="auth-feature">
+                <div className="feature-icon">💰</div>
+                <h3>Profit Sharing</h3>
+                <p>Top holders automatically receive a portion of the trading profits. The more you hold, the more you earn.</p>
+              </div>
+            </div>
+
+            <div className="auth-disclaimer">
+              <strong>Important:</strong> ClaudeCash is not financial advice. This is an experimental trading system. Only invest what you can afford to lose. Always do your own research.
+            </div>
+          </div>
+
           <button className="auth-cta" onClick={() => setShowAuthModal(true)}>
             Activate License
           </button>
