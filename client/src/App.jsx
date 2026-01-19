@@ -1082,11 +1082,9 @@ function App() {
               <span className="cta-arrow">→</span>
             </button>
             <p className="cta-subtext">Get real-time access • No delays • Full dashboard</p>
-            {tokenGateInfo.enabled && (
-              <p className="cta-token-gate">
-                🎫 <strong>Auto-authorize:</strong> Hold min {(tokenGateInfo.minAmount / 1000000).toFixed(0)}M $CLAUDECASH tokens for free access
-              </p>
-            )}
+            <p className="cta-token-gate">
+              🎫 <strong>Auto-authorize:</strong> Hold min {tokenGateInfo.enabled ? `${(tokenGateInfo.minAmount / 1000000).toFixed(0)}M` : '5M'} $CLAUDECASH tokens for free access
+            </p>
           </div>
 
           <div className="disclaimer-section">
