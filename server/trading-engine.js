@@ -19,7 +19,7 @@ export class TradingEngine extends EventEmitter {
     this.trailingStopPct = parseFloat(process.env.TRAILING_STOP_PCT || '25');
     this.realtimeMcapEnabled = process.env.REALTIME_MCAP !== 'false';
     this.realtimeMcapTtlMs = parseInt(process.env.REALTIME_MCAP_TTL_MS || '1000', 10); // 1s cache
-    this.realtimeMcapIntervalMs = parseInt(process.env.REALTIME_MCAP_INTERVAL_MS || '1000', 10); // 1s interval for accurate stop-loss
+    this.realtimeMcapIntervalMs = parseInt(process.env.REALTIME_MCAP_INTERVAL_MS || '3000', 10); // 3s interval for accurate stop-loss
     this.pumpPortalUrl = process.env.PUMP_PORTAL_URL || 'https://pumpportal.fun/api/trade-local';
     this.pumpPortalPool = process.env.PUMP_PORTAL_POOL || 'auto';
     this.pumpPortalPriorityFeeSol = parseFloat(process.env.PUMP_PORTAL_PRIORITY_FEE_SOL || '0.00001');
