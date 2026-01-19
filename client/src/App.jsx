@@ -1733,6 +1733,38 @@ function App() {
           color: var(--text-muted);
           font-size: 0.75rem;
         }
+
+        /* Mobile: stack columns to avoid horizontal overflow (do not affect desktop) */
+        @media (max-width: 900px) {
+          .main-content {
+            padding: 1rem;
+          }
+
+          .ops-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .content-layout {
+            grid-template-columns: 1fr !important;
+            gap: 1rem;
+          }
+
+          .side-panel,
+          .detail-panel {
+            position: static;
+            top: auto;
+          }
+
+          .tab-nav {
+            gap: 1rem;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .tab-btn {
+            flex: 0 0 auto;
+          }
+        }
       `}</style>
     </div>
   );

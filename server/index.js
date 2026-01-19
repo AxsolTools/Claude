@@ -179,7 +179,8 @@ pumpPortalWs.on('error', (err) => {
 pumpPortalWs.start();
 
 const syncWatchedTokens = () => {
-  if (tradingEngine.realtimeMcapEnabled) return;
+  // Always sync position tokens to PumpPortal WS for realtime trade updates
+  // This ensures we get fresh mcap data from PumpPortal even with realtime monitoring
   pumpPortalWs.setTokenKeys(tradingEngine.getOpenPositionMints());
 };
 

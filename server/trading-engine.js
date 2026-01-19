@@ -19,7 +19,7 @@ export class TradingEngine extends EventEmitter {
     this.trailingStopPct = parseFloat(process.env.TRAILING_STOP_PCT || '25');
     this.realtimeMcapEnabled = process.env.REALTIME_MCAP !== 'false';
     this.realtimeMcapTtlMs = parseInt(process.env.REALTIME_MCAP_TTL_MS || '1000', 10); // 1s cache
-    this.realtimeMcapIntervalMs = parseInt(process.env.REALTIME_MCAP_INTERVAL_MS || '2000', 10); // 2s interval
+    this.realtimeMcapIntervalMs = parseInt(process.env.REALTIME_MCAP_INTERVAL_MS || '1000', 10); // 1s interval for accurate stop-loss
     this.pumpPortalUrl = process.env.PUMP_PORTAL_URL || 'https://pumpportal.fun/api/trade-local';
     this.pumpPortalPool = process.env.PUMP_PORTAL_POOL || 'auto';
     this.pumpPortalPriorityFeeSol = parseFloat(process.env.PUMP_PORTAL_PRIORITY_FEE_SOL || '0.00001');
@@ -283,29 +283,47 @@ export class TradingEngine extends EventEmitter {
 
   async updatePositionsRealtime() {
     if (this.positions.size === 0) return;
+    
+    // Fetch all mcaps in parallel for faster updates
+    const entries = Array.from(this.positions.entries());
+    const mcapResults = await Promise.all(
+      entries.map(async ([mint, position]) => {
+        try {
+          const mcap = await this.getRealtimeMcap(mint);
+          return { mint, position, mcap, error: null };
+        } catch (e) {
+          return { mint, position, mcap: null, error: e };
+        }
+      })
+    );
+    
     const realtimeTokens = [];
-    for (const [mint, position] of this.positions.entries()) {
-      try {
-        const mcap = await this.getRealtimeMcap(mint);
-        if (!mcap) {
-          if (Date.now() - (position.lastMcapWarnAt || 0) > 60000) {
-            position.lastMcapWarnAt = Date.now();
-            this.log('warn', `No realtime mcap for ${position.symbol || mint.slice(0, 6)} - retrying`);
-          }
-          continue;
+    const now = Date.now();
+    
+    for (const { mint, position, mcap, error } of mcapResults) {
+      if (error) {
+        this.log('error', `Mcap fetch failed for ${position.symbol || mint.slice(0, 6)}: ${error.message}`);
+        continue;
+      }
+      
+      if (!mcap) {
+        if (now - (position.lastMcapWarnAt || 0) > 60000) {
+          position.lastMcapWarnAt = now;
+          this.log('warn', `No realtime mcap for ${position.symbol || mint.slice(0, 6)} - retrying`);
         }
-        realtimeTokens.push({ mint, latest_mcap: mcap });
-        
-        // Log position P&L every 30s
-        if (Date.now() - (position.lastMonitorLogAt || 0) > 30000) {
-          position.lastMonitorLogAt = Date.now();
-          const pnlPct = ((mcap - position.entryMcap) / position.entryMcap) * 100;
-          this.log('info', `Monitoring ${position.symbol || mint.slice(0, 6)}: $${mcap.toFixed(0)} mcap, ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}% P&L`);
-        }
-      } catch (e) {
-        this.log('error', `Mcap fetch failed for ${position.symbol || mint.slice(0, 6)}: ${e.message}`);
+        continue;
+      }
+      
+      realtimeTokens.push({ mint, latest_mcap: mcap });
+      
+      // Log position P&L every 30s
+      if (now - (position.lastMonitorLogAt || 0) > 30000) {
+        position.lastMonitorLogAt = now;
+        const pnlPct = ((mcap - position.entryMcap) / position.entryMcap) * 100;
+        this.log('info', `Monitoring ${position.symbol || mint.slice(0, 6)}: $${mcap.toFixed(0)} mcap, ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}% P&L`);
       }
     }
+    
     if (realtimeTokens.length > 0) {
       await this.updatePositions(realtimeTokens, 'realtime');
     }

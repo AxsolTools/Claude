@@ -465,6 +465,51 @@ export function TokenStream({ tokens, onSelect, selectedId, highlightedId, label
           font-size: 0.75rem;
           color: var(--text-muted);
         }
+
+        /* Mobile: prevent token cards from forcing horizontal scroll */
+        @media (max-width: 900px) {
+          .token-card {
+            grid-template-columns: 44px 1fr;
+            grid-template-rows: auto auto;
+            padding: 0.9rem 1rem;
+            gap: 0.75rem;
+          }
+
+          .card-left {
+            margin-right: 0;
+          }
+
+          .token-logo,
+          .token-logo-placeholder {
+            width: 34px;
+            height: 34px;
+            border-radius: 7px;
+          }
+
+          .token-header {
+            flex-wrap: wrap;
+            row-gap: 0.15rem;
+          }
+
+          .token-meta {
+            flex-wrap: wrap;
+            row-gap: 0.25rem;
+          }
+
+          .card-right {
+            grid-column: 1 / -1;
+            justify-content: flex-start;
+          }
+
+          .metric-grid {
+            min-width: 0;
+            width: 100%;
+          }
+
+          .pagination-bar {
+            padding: 0.75rem 1rem;
+          }
+        }
       `}</style>
     </div>
   );
