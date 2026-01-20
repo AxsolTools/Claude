@@ -78,6 +78,7 @@ export class TradingEngine extends EventEmitter {
 
     if (this.tradingMode === 'live') {
       setInterval(() => this.refreshBalance(), 10000);
+      this.startWalletSellMonitor();
     }
     setInterval(() => this.refreshHolders(), 30000);
     this.startRealtimeMonitor();
@@ -163,6 +164,68 @@ export class TradingEngine extends EventEmitter {
         }
       }
     }, this.realtimeMcapIntervalMs);
+  }
+
+  startWalletSellMonitor() {
+    // Monitor wallet for manual sells - only runs when active trades exist
+    if (this.tradingMode !== 'live' || !this.walletAddress) return;
+    
+    this.log('info', 'Wallet sell monitoring enabled - detecting manual sells');
+    
+    // Check every 3 seconds for balance changes
+    setInterval(async () => {
+      // Only monitor when there are active positions
+      if (this.positions.size === 0) return;
+      
+      try {
+        await this.checkWalletSells();
+      } catch (e) {
+        // Silently handle errors to avoid spam
+      }
+    }, 3000);
+  }
+
+  async checkWalletSells() {
+    // Check each active position for balance decreases (indicating manual sell)
+    for (const [mint, position] of this.positions.entries()) {
+      try {
+        // Skip if position already has sell in progress flag
+        if (position.sellInProgress) continue;
+        
+        // Get current wallet token balance using Helius
+        const currentBalance = await this.getTokenBalance(mint);
+        const currentAmount = currentBalance.amount || 0;
+        
+        // Get stored position amount
+        const storedAmount = position.tokenAmount || 0;
+        
+        // If current balance is less than stored, a sell occurred
+        if (storedAmount > 0 && currentAmount < storedAmount) {
+          const amountSold = storedAmount - currentAmount;
+          const pctSold = (amountSold / storedAmount) * 100;
+          
+          // Update position to reflect the manual sell
+          position.tokenAmount = currentAmount;
+          position.remainingPct = Math.max(0, position.remainingPct - pctSold);
+          
+          // If fully sold (or near zero), close the position
+          if (currentAmount <= 0 || position.remainingPct <= 0) {
+            this.positions.delete(mint);
+            this.log('info', `Position closed: ${position.symbol || mint.slice(0, 6)} manually sold (100%)`);
+          } else {
+            this.log('info', `Manual sell detected: ${position.symbol || mint.slice(0, 6)} - ${pctSold.toFixed(1)}% sold (${position.remainingPct.toFixed(1)}% remaining)`);
+          }
+          
+          this.emitPositions();
+        } else if (currentAmount > storedAmount && storedAmount > 0) {
+          // Balance increased - update stored amount (could be a rebuy or airdrop)
+          position.tokenAmount = currentAmount;
+          this.emitPositions();
+        }
+      } catch (e) {
+        // Skip errors for individual positions
+      }
+    }
   }
 
   getTokenRecord(mint) {

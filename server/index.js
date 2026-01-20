@@ -188,8 +188,20 @@ pumpPortalWs.on('migration', ({ mint, state }) => {
 
 // Connect PumpPortal WS trade events to trigger immediate position updates
 // This provides near-instant market cap updates when trades occur (vs 3s polling)
+// Also detects manual sells from TRADING_WALLET_ADDRESS as fallback
 pumpPortalWs.on('trade', ({ mint, payload }) => {
   if (mint && tradingEngine.positions.has(mint)) {
+    // Check if this is a sell from our trading wallet (fallback detection)
+    const txType = payload?.txType || payload?.data?.txType;
+    const traderPublicKey = payload?.traderPublicKey || payload?.data?.traderPublicKey;
+    if (txType === 'sell' && traderPublicKey && tradingEngine.walletAddress && 
+        traderPublicKey === tradingEngine.walletAddress) {
+      // Manual sell detected via PumpPortal WS - immediately check balance via Helius
+      tradingEngine.checkWalletSells().catch(err => {
+        console.error(`Error checking wallet sell via PumpPortal WS for ${mint?.slice(0, 8)}:`, err?.message || err);
+      });
+    }
+    
     // Trigger immediate position update with real-time market cap from WebSocket
     tradingEngine.handleRealtimeTrade({ mint, payload }).catch(err => {
       console.error(`Error handling PumpPortal trade update for ${mint?.slice(0, 8)}:`, err?.message || err);
