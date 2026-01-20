@@ -306,9 +306,9 @@ export class TradingEngine extends EventEmitter {
     const mcapResults = await Promise.all(
       entries.map(async ([mint, position]) => {
         try {
-          // Use same method as ClaudeCash feed - always fetch fresh data (force refresh every 3s)
+          // Use same method as ClaudeCash feed - use cache (1s TTL, runs every 3s = always fresh)
           // This ensures we get the latest market cap every 3 seconds, same as ClaudeCash feed
-          const mcap = await this.getRealtimeMcap(mint, true);
+          const mcap = await this.getRealtimeMcap(mint);
           return { mint, position, mcap, error: null };
         } catch (e) {
           return { mint, position, mcap: null, error: e };
@@ -362,8 +362,8 @@ export class TradingEngine extends EventEmitter {
         position.lastKnownMcap = finalMcap;
         realtimeTokens.push({ mint, latest_mcap: finalMcap });
         
-        // Log position P&L every 30s
-        if (now - (position.lastMonitorLogAt || 0) > 30000) {
+        // Log position P&L every 3s (same as monitoring interval)
+        if (now - (position.lastMonitorLogAt || 0) > 3000) {
           position.lastMonitorLogAt = now;
           const pnlPct = ((finalMcap - position.entryMcap) / position.entryMcap) * 100;
           this.log('info', `Monitoring ${position.symbol || mint.slice(0, 6)}: $${finalMcap.toFixed(0)} mcap, ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}% P&L`);
