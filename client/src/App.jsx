@@ -1327,13 +1327,33 @@ function App() {
                 {liveTrades.length === 0 ? (
                   <div className="ops-empty">Awaiting first signal.</div>
                 ) : (
-                  liveTrades.map((entry, index) => (
-                    <div key={`${entry.timestamp}-${index}`} className="ops-row">
-                      <span className="ops-row-time">{formatShortTime(entry.timestamp)}</span>
-                      <span className={`ops-row-type ${entry.type || 'info'}`}>{entry.type || 'info'}</span>
-                      <span className="ops-row-text">{entry.message}</span>
-                    </div>
-                  ))
+                  liveTrades.map((entry, index) => {
+                    let message = entry.message;
+                    if (entry.message && entry.message.startsWith('Monitoring ')) {
+                      const symbolMatch = entry.message.match(/^Monitoring\s+([^:]+):/);
+                      if (symbolMatch) {
+                        const symbol = symbolMatch[1].trim();
+                        const position = positions.find(p => p.symbol === symbol || (p.mint && symbol.length >= 6 && p.mint.slice(0, 6) === symbol.slice(0, 6)));
+                        if (position) {
+                          const token = tokens.find(t => t.address === position.mint || t.mint === position.mint);
+                          if (token && position.entryMcap) {
+                            const currentMcap = token.realtime_mcap || token.latest_mcap;
+                            if (currentMcap && Number.isFinite(currentMcap) && currentMcap > 0) {
+                              const pnlPct = ((currentMcap - position.entryMcap) / position.entryMcap) * 100;
+                              message = `Monitoring ${position.symbol || symbol}: $${currentMcap.toFixed(0)} mcap, ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}% P&L`;
+                            }
+                          }
+                        }
+                      }
+                    }
+                    return (
+                      <div key={`${entry.timestamp}-${index}`} className="ops-row">
+                        <span className="ops-row-time">{formatShortTime(entry.timestamp)}</span>
+                        <span className={`ops-row-type ${entry.type || 'info'}`}>{entry.type || 'info'}</span>
+                        <span className="ops-row-text">{message}</span>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
