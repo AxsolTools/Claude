@@ -80,6 +80,7 @@ function App() {
   const claudeCashSeenRef = useRef(new Set());
   const lastSoundTokenRef = useRef(null);
   const lastActivitySoundRef = useRef(null);
+  const claudeCashFeedSeenRef = useRef(new Set()); // Track tokens seen in ClaudeCash feed
   const publicWsRef = useRef(null);
   const publicReconnectTimeoutRef = useRef(null);
 
@@ -626,15 +627,6 @@ function App() {
               }
               if (hasPrintScan) {
                 setHighlighted(prev => ({ ...prev, print_scan: token.address }));
-                
-                // Play sound for new ClaudeCash tokens (only in ClaudeCash tab with sound enabled)
-                if (activeTabRef.current === 'claudecash' && soundEnabledRef.current) {
-                  const tokenStamp = token.address + (token.first_seen_print_scan || token.first_seen_local || Date.now());
-                  if (tokenStamp !== lastSoundTokenRef.current) {
-                    lastSoundTokenRef.current = tokenStamp;
-                    audioRef.current?.play().catch(() => {});
-                  }
-                }
               }
             }
 
@@ -887,6 +879,42 @@ function App() {
     return sources.includes('print_scan');
   });
   const totalCalls = claudeCashStatsTokens.length;
+
+  // Monitor ClaudeCash feed for new tokens and play sound
+  useEffect(() => {
+    if (activeTab !== 'claudecash' || !soundEnabled) return;
+    
+    // Check for new tokens in the ClaudeCash feed
+    const currentAddresses = new Set(claudeCashTokens.map(t => t.address).filter(Boolean));
+    const seenAddresses = claudeCashFeedSeenRef.current;
+    
+    // Find tokens that are new to the feed
+    for (const token of claudeCashTokens) {
+      if (!token.address) continue;
+      
+      // Check if this is a new token (not seen before in feed)
+      if (!seenAddresses.has(token.address)) {
+        seenAddresses.add(token.address);
+        
+        // Play sound for new token in ClaudeCash feed
+        if (soundEnabledRef.current && activeTabRef.current === 'claudecash') {
+          const tokenStamp = token.address + (token.isNew ? 'new' : '') + (token.first_seen_print_scan || token.first_seen_local || Date.now());
+          if (tokenStamp !== lastSoundTokenRef.current) {
+            lastSoundTokenRef.current = tokenStamp;
+            audioRef.current?.play().catch(() => {});
+          }
+        }
+      }
+    }
+    
+    // Clean up seen set to prevent memory growth (keep only addresses in current feed)
+    // Remove addresses that are no longer in the feed
+    for (const seenAddr of seenAddresses) {
+      if (!currentAddresses.has(seenAddr)) {
+        seenAddresses.delete(seenAddr);
+      }
+    }
+  }, [claudeCashTokens, activeTab, soundEnabled]);
 
   const athMultiple = (token) => {
     // Use highest_multiplier from database (correct value)
