@@ -627,7 +627,7 @@ function App() {
                 setHighlighted(prev => ({ ...prev, print_scan: token.address }));
                 
                 // Play sound for new Claude Cash tokens
-                if (!claudeCashSeenRef.current.has(token.address) && soundEnabledRef.current && audioRef.current) {
+                if (soundEnabledRef.current && audioRef.current) {
                   try {
                     audioRef.current.currentTime = 0; // Reset to start
                     audioRef.current.play().catch(err => {
@@ -637,9 +637,6 @@ function App() {
                     console.warn('Error playing sound:', err);
                   }
                 }
-                
-                // Track that we've seen this Claude Cash token
-                claudeCashSeenRef.current.add(token.address);
               }
             }
 
