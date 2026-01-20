@@ -68,10 +68,17 @@ export class TradingEngine extends EventEmitter {
   }
 
   async start() {
-    await this.refreshBalance();
+    if (this.tradingMode === 'live') {
+      await this.refreshBalance();
+    } else {
+      this.balanceSol = 0;
+      this.emit('balance', 0);
+    }
     await this.refreshHolders();
 
-    setInterval(() => this.refreshBalance(), 10000);
+    if (this.tradingMode === 'live') {
+      setInterval(() => this.refreshBalance(), 10000);
+    }
     setInterval(() => this.refreshHolders(), 30000);
     this.startRealtimeMonitor();
   }
@@ -368,7 +375,8 @@ export class TradingEngine extends EventEmitter {
         if (now - (position.lastMonitorLogAt || 0) > 3000) {
           position.lastMonitorLogAt = now;
           const pnlPct = ((finalMcap - position.entryMcap) / position.entryMcap) * 100;
-          this.log('info', `Monitoring ${position.symbol || mint.slice(0, 6)}: $${finalMcap.toFixed(0)} mcap, ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}% P&L`);
+          const action = this.tradingMode === 'live' ? 'Monitoring' : 'Simulating';
+          this.log('info', `${action} ${position.symbol || mint.slice(0, 6)}: $${finalMcap.toFixed(0)} mcap, ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}% P&L`);
         }
       }
     }
