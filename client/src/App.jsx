@@ -1050,7 +1050,7 @@ function App() {
               <h2>Live Trading Activity</h2>
               <div className="header-line"></div>
             </div>
-            <p className="section-subtitle">Recent calls from my trading system (25 minute delay for public view)</p>
+            <p className="section-subtitle">Recent calls from my trading system (5 minute delay for public view)</p>
             
             <div id="live-activity-feed" className="activity-feed-container">
               {publicActivity.length === 0 ? (
@@ -1180,7 +1180,7 @@ function App() {
               <div className="auth-payment">
                 <div className="auth-payment-title">Payment Options</div>
                 <div className="auth-payment-text">
-                  Weekly: 0.25 SOL · Monthly: 0.5 SOL
+                  Weekly: 2 SOL · Monthly: 4 SOL
                 </div>
                 {paymentInfo && (
                   <div className="auth-payment-details">

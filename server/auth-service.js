@@ -133,8 +133,8 @@ export class AuthService {
   }
 
   getPlanAmountSol(plan) {
-    if (plan === 'week') return 0.25;
-    if (plan === 'month') return 0.5;
+    if (plan === 'week') return 2;
+    if (plan === 'month') return 4;
     return null;
   }
 

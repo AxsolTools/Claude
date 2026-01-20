@@ -348,9 +348,9 @@ const attachRealtimeMcapField = async (tokens, { limit = 30, forceRefresh = fals
 const clients = new Set();
 const publicClients = new Set();
 
-// Delayed token queue for public broadcast (25 minute delay)
+// Delayed token queue for public broadcast (5 minute delay)
 const delayedTokenQueue = [];
-const DELAY_MS = 25 * 60 * 1000; // 25 minutes
+const DELAY_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_QUEUE_SIZE = 100;
 
 wss.on('connection', async (ws, req) => {
@@ -362,7 +362,7 @@ wss.on('connection', async (ws, req) => {
       publicClients.add(ws);
       console.log(`Public client connected. Total: ${publicClients.size}`);
       
-      // Send ALL ClaudeCash tokens that are 25+ minutes old (full data, not duplicated)
+      // Send ALL ClaudeCash tokens that are 5+ minutes old (full data, not duplicated)
       const recentPublic = getRecentPublicTokens(200);
       ws.send(JSON.stringify({
         type: 'init',
@@ -454,7 +454,7 @@ function getRecentPublicTokens(limit = 200) {
       
       const callTime = new Date(t.first_seen_print_scan || t.first_seen_local).getTime();
       const age = now - callTime;
-      return age >= DELAY_MS; // Only show tokens 25+ minutes old
+      return age >= DELAY_MS; // Only show tokens 5+ minutes old
     })
     .sort((a, b) => {
       const aTime = new Date(a.first_seen_print_scan || a.first_seen_local).getTime();
@@ -649,7 +649,7 @@ async function pollStalkFun() {
               newTokens.push(flagged);
               newPrintTokens.push(flagged);
               
-              // Add to delayed queue for public broadcast (25 minute delay)
+              // Add to delayed queue for public broadcast (5 minute delay)
               delayedTokenQueue.push({
                 token: record,
                 callTime: Date.now(),
@@ -832,7 +832,7 @@ async function broadcastRealtimeMcaps() {
     // Send to authenticated clients
     broadcast({ type: 'token_update', data });
     
-    // Also send to public clients if token is 25+ minutes old
+    // Also send to public clients if token is 5+ minutes old
     if (publicClients.size > 0) {
       const token = tokenStore.getToken(data.address);
       if (token && isPublicEligible(token)) {
