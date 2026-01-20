@@ -38,6 +38,9 @@ export function Header({ connected, soundEnabled, onToggleSound, authWallet, lic
             <img src="/logo.png" alt="ClaudeCash" className="logo-img" />
             <span className="logo-text">ClaudeCash</span>
           </div>
+          <div className="ca-address">
+            CA: GR4up7L5HAL1Ww48aLyTcUzE4UiWHV8Txt56KbSupump
+          </div>
         </div>
         
         <div className="header-right">
@@ -127,6 +130,16 @@ export function Header({ connected, soundEnabled, onToggleSound, authWallet, lic
           height: 32px;
           border-radius: 6px;
           object-fit: cover;
+        }
+        
+        .ca-address {
+          font-family: var(--font-mono);
+          font-size: 0.75rem;
+          color: var(--text-secondary);
+          padding: 0.35rem 0.7rem;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: 6px;
         }
         
         .header-right {

@@ -934,6 +934,9 @@ function App() {
             <img src="/logo.png" alt="ClaudeCash" className="landing-logo-img" />
             <span className="landing-logo-text">ClaudeCash</span>
           </div>
+          <div className="landing-ca-address">
+            CA: GR4up7L5HAL1Ww48aLyTcUzE4UiWHV8Txt56KbSupump
+          </div>
           <div className="landing-header-controls">
             <a 
               href="https://x.com/claudecash_sol" 
