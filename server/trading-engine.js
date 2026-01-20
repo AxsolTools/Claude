@@ -248,6 +248,34 @@ export class TradingEngine extends EventEmitter {
   async getRealtimeMcap(mint, forceRefresh = false) {
     if (!mint) return null;
     
+    // PRIORITY 1: Check PumpPortal WebSocket cache first (fastest, real-time)
+    // PumpPortal provides SOL market cap, convert to USD
+    if (this.pumpPortalWs && !forceRefresh) {
+      const wsMcapUsd = this.pumpPortalWs.getMarketCapUsd(mint);
+      if (Number.isFinite(wsMcapUsd) && wsMcapUsd > 0) {
+        // Also cache in our internal cache for consistency
+        this.mcapCache.set(mint, { value: wsMcapUsd, ts: Date.now() });
+        return wsMcapUsd;
+      }
+      
+      // If USD not available, try SOL market cap and convert to USD
+      const wsMcapSol = this.pumpPortalWs.getMarketCapSol(mint);
+      if (Number.isFinite(wsMcapSol) && wsMcapSol > 0) {
+        try {
+          const solUsd = await this.helius.getSolUsdPrice();
+          if (Number.isFinite(solUsd) && solUsd > 0) {
+            const mcapUsd = wsMcapSol * solUsd;
+            if (Number.isFinite(mcapUsd) && mcapUsd > 0) {
+              this.mcapCache.set(mint, { value: mcapUsd, ts: Date.now() });
+              return mcapUsd;
+            }
+          }
+        } catch {
+          // Fall through to API calls
+        }
+      }
+    }
+    
     // Skip cache if force refresh requested
     if (!forceRefresh) {
       const cached = this.mcapCache.get(mint);
@@ -388,7 +416,44 @@ export class TradingEngine extends EventEmitter {
 
   async handleRealtimeTrade({ mint, payload } = {}) {
     if (!mint || !this.positions.has(mint)) return;
-    const mcap = await this.getRealtimeMcap(mint);
+    
+    // Extract market cap directly from PumpPortal WS payload (fastest path)
+    // PumpPortal provides SOL market cap, convert to USD
+    let mcap = null;
+    if (payload) {
+      // Try USD market cap first (if available)
+      const mcapUsd = payload?.usd_market_cap ?? 
+                      payload?.usdMarketCap ?? 
+                      payload?.data?.usd_market_cap ?? 
+                      payload?.data?.usdMarketCap;
+      
+      if (Number.isFinite(mcapUsd) && mcapUsd > 0) {
+        mcap = mcapUsd;
+      } else {
+        // Convert SOL market cap to USD
+        const mcapSol = payload?.marketCapSol ?? 
+                        payload?.market_cap_sol ?? 
+                        payload?.data?.marketCapSol ?? 
+                        payload?.data?.market_cap_sol;
+        
+        if (Number.isFinite(mcapSol) && mcapSol > 0) {
+          try {
+            const solUsd = await this.helius.getSolUsdPrice();
+            if (Number.isFinite(solUsd) && solUsd > 0) {
+              mcap = mcapSol * solUsd;
+            }
+          } catch {
+            // Fall through to getRealtimeMcap
+          }
+        }
+      }
+    }
+    
+    // Fallback to getRealtimeMcap if payload doesn't have mcap
+    if (!Number.isFinite(mcap) || mcap <= 0) {
+      mcap = await this.getRealtimeMcap(mint);
+    }
+    
     if (!Number.isFinite(mcap) || mcap <= 0) return;
     await this.updatePositions([{ mint, latest_mcap: mcap }], 'realtime');
   }

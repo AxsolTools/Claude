@@ -186,6 +186,17 @@ pumpPortalWs.on('migration', ({ mint, state }) => {
   tradingEngine.setMigrationState(mint, state, 'pumpportal');
 });
 
+// Connect PumpPortal WS trade events to trigger immediate position updates
+// This provides near-instant market cap updates when trades occur (vs 3s polling)
+pumpPortalWs.on('trade', ({ mint, payload }) => {
+  if (mint && tradingEngine.positions.has(mint)) {
+    // Trigger immediate position update with real-time market cap from WebSocket
+    tradingEngine.handleRealtimeTrade({ mint, payload }).catch(err => {
+      console.error(`Error handling PumpPortal trade update for ${mint?.slice(0, 8)}:`, err?.message || err);
+    });
+  }
+});
+
 pumpPortalWs.on('error', (err) => {
   console.error('PumpPortal WS error:', err?.message || err);
 });
