@@ -877,11 +877,17 @@ function App() {
     const currentAddresses = new Set(claudeCashTokens.map(t => t.address).filter(Boolean));
     const prevAddresses = prevClaudeCashAddressesRef.current;
     
+    // Initialize on first run - don't play sound
+    if (!prevAddresses || prevAddresses.size === 0) {
+      prevClaudeCashAddressesRef.current = new Set(currentAddresses);
+      return;
+    }
+    
     // Only proceed if there's actually a NEW address that wasn't there before
     const newAddresses = Array.from(currentAddresses).filter(addr => !prevAddresses.has(addr));
     if (newAddresses.length === 0) {
       // No new addresses, just update the ref and exit
-      prevClaudeCashAddressesRef.current = currentAddresses;
+      prevClaudeCashAddressesRef.current = new Set(currentAddresses);
       return;
     }
     
@@ -901,8 +907,8 @@ function App() {
       }
     }
     
-    // Update refs
-    prevClaudeCashAddressesRef.current = currentAddresses;
+    // Update refs - create new Set to avoid reference issues
+    prevClaudeCashAddressesRef.current = new Set(currentAddresses);
   }, [claudeCashTokens, activeTab, soundEnabled]);
 
   const athMultiple = (token) => {
