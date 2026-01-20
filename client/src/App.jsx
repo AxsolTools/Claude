@@ -79,8 +79,6 @@ function App() {
   const soundEnabledRef = useRef(soundEnabled);
   const claudeCashSeenRef = useRef(new Set());
   const lastActivitySoundRef = useRef(null);
-  const claudeCashSoundPlayedRef = useRef(new Set()); // Track token addresses we've played sound for
-  const prevClaudeCashAddressesRef = useRef(new Set()); // Track previous addresses to detect new ones
   const publicWsRef = useRef(null);
   const publicReconnectTimeoutRef = useRef(null);
 
@@ -868,48 +866,6 @@ function App() {
     return sources.includes('print_scan');
   });
   const totalCalls = claudeCashStatsTokens.length;
-
-  // Monitor ClaudeCash feed for new tokens and play sound
-  useEffect(() => {
-    if (activeTab !== 'claudecash' || !soundEnabled) return;
-    
-    // Get current addresses
-    const currentAddresses = new Set(claudeCashTokens.map(t => t.address).filter(Boolean));
-    const prevAddresses = prevClaudeCashAddressesRef.current;
-    
-    // Initialize on first run - don't play sound
-    if (!prevAddresses || prevAddresses.size === 0) {
-      prevClaudeCashAddressesRef.current = new Set(currentAddresses);
-      return;
-    }
-    
-    // Only proceed if there's actually a NEW address that wasn't there before
-    const newAddresses = Array.from(currentAddresses).filter(addr => !prevAddresses.has(addr));
-    if (newAddresses.length === 0) {
-      // No new addresses, just update the ref and exit
-      prevClaudeCashAddressesRef.current = new Set(currentAddresses);
-      return;
-    }
-    
-    // There's a new token - find it and play sound
-    for (const token of claudeCashTokens) {
-      if (!token.address) continue;
-      if (newAddresses.includes(token.address)) {
-        // This is a new token - play sound once
-        if (soundEnabledRef.current && activeTabRef.current === 'claudecash') {
-          if (!claudeCashSoundPlayedRef.current.has(token.address)) {
-            claudeCashSoundPlayedRef.current.add(token.address);
-            audioRef.current?.play().catch(() => {});
-          }
-        }
-        // Only play for the first new token (they're sorted newest first)
-        break;
-      }
-    }
-    
-    // Update refs - create new Set to avoid reference issues
-    prevClaudeCashAddressesRef.current = new Set(currentAddresses);
-  }, [claudeCashTokens, activeTab, soundEnabled]);
 
   const athMultiple = (token) => {
     // Use highest_multiplier from database (correct value)
