@@ -306,9 +306,9 @@ export class TradingEngine extends EventEmitter {
     const mcapResults = await Promise.all(
       entries.map(async ([mint, position]) => {
         try {
-          // Use same method as ClaudeCash feed - always fetch fresh data (cache TTL is 1s, interval is 3s)
+          // Use same method as ClaudeCash feed - always fetch fresh data (force refresh every 3s)
           // This ensures we get the latest market cap every 3 seconds, same as ClaudeCash feed
-          const mcap = await this.getRealtimeMcap(mint);
+          const mcap = await this.getRealtimeMcap(mint, true);
           return { mint, position, mcap, error: null };
         } catch (e) {
           return { mint, position, mcap: null, error: e };
@@ -329,40 +329,30 @@ export class TradingEngine extends EventEmitter {
           this.log('error', `Mcap fetch failed for ${position.symbol || mint.slice(0, 6)}: ${error?.message || 'null result'}`);
         }
         
-        // Fallback 1: Try cached value (from ClaudeCash feed which refreshes every 5s)
-        const cached = this.mcapCache.get(mint);
-        if (cached && cached.value && Number.isFinite(cached.value) && cached.value > 0) {
-          finalMcap = cached.value;
+        // Fallback 1: Use token store latest_mcap (from ClaudeCash feed which refreshes every 2s)
+        const tokenRecord = this.getTokenRecord(mint);
+        const storeMcap = parseFloat(tokenRecord?.latest_mcap || tokenRecord?.realtime_mcap || 0);
+        if (storeMcap && Number.isFinite(storeMcap) && storeMcap > 0) {
+          finalMcap = storeMcap;
           if (now - (position.lastMcapWarnAt || 0) > 60000) {
             position.lastMcapWarnAt = now;
-            this.log('warn', `Using cached mcap for ${position.symbol || mint.slice(0, 6)} (fetch failed)`);
+            this.log('warn', `Using token store mcap for ${position.symbol || mint.slice(0, 6)} (fetch failed)`);
           }
         } else {
-          // Fallback 2: Use token store latest_mcap (from ClaudeCash feed)
-          const tokenRecord = this.getTokenRecord(mint);
-          const storeMcap = parseFloat(tokenRecord?.latest_mcap || tokenRecord?.realtime_mcap || 0);
-          if (storeMcap && Number.isFinite(storeMcap) && storeMcap > 0) {
-            finalMcap = storeMcap;
+          // Fallback 2: Use last known mcap from position (if we've monitored before)
+          if (position.lastKnownMcap && Number.isFinite(position.lastKnownMcap) && position.lastKnownMcap > 0) {
+            finalMcap = position.lastKnownMcap;
             if (now - (position.lastMcapWarnAt || 0) > 60000) {
               position.lastMcapWarnAt = now;
-              this.log('warn', `Using token store mcap for ${position.symbol || mint.slice(0, 6)} (fetch failed)`);
+              this.log('warn', `Using last known mcap for ${position.symbol || mint.slice(0, 6)} (fetch failed)`);
             }
           } else {
-            // Fallback 3: Use last known mcap from position (if we've monitored before)
-            if (position.lastKnownMcap && Number.isFinite(position.lastKnownMcap) && position.lastKnownMcap > 0) {
-              finalMcap = position.lastKnownMcap;
-              if (now - (position.lastMcapWarnAt || 0) > 60000) {
-                position.lastMcapWarnAt = now;
-                this.log('warn', `Using last known mcap for ${position.symbol || mint.slice(0, 6)} (fetch failed)`);
-              }
-            } else {
-              // No fallback available - skip this cycle but don't exit
-              if (now - (position.lastMcapWarnAt || 0) > 60000) {
-                position.lastMcapWarnAt = now;
-                this.log('warn', `No realtime mcap for ${position.symbol || mint.slice(0, 6)} - retrying (no fallback available)`);
-              }
-              continue; // Skip only if absolutely no data available
+            // No fallback available - skip this cycle but don't exit
+            if (now - (position.lastMcapWarnAt || 0) > 60000) {
+              position.lastMcapWarnAt = now;
+              this.log('warn', `No realtime mcap for ${position.symbol || mint.slice(0, 6)} - retrying (no fallback available)`);
             }
+            continue; // Skip only if absolutely no data available
           }
         }
       }
