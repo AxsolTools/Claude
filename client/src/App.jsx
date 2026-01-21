@@ -1309,7 +1309,7 @@ function App() {
     );
   }
 
-  const handleToggleSound = useCallback(() => {
+  const handleToggleSound = () => {
     setSoundEnabled(prev => {
       const next = !prev;
       try {
@@ -1325,7 +1325,7 @@ function App() {
       }
       return next;
     });
-  }, []);
+  };
 
   return (
     <div className="app">
