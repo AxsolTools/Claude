@@ -668,7 +668,9 @@ function App() {
 
           case 'token_update':
             setTokens(prev => prev.map(t => {
-              if (t.address !== message.data.address) return t;
+              const updateAddress = message.data.address || message.data.mint;
+              const tokenAddress = t.address || t.mint;
+              if (tokenAddress !== updateAddress) return t;
               return { ...t, ...message.data };
             }));
             break;

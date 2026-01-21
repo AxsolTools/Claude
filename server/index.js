@@ -725,7 +725,11 @@ async function pollStalkFun() {
             // ignore
           }
         }
-        broadcast({ type: 'token_update', data: token });
+        // Ensure address field is present for frontend matching
+        broadcast({ 
+          type: 'token_update', 
+          data: { ...token, address: token.address || token.mint || mint }
+        });
       }
     }
 

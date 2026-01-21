@@ -531,25 +531,10 @@ export class TradingEngine extends EventEmitter {
     const mint = token.mint || token.token_address || token.address;
     if (!mint) return;
 
-    this.log('signal', `Scanning ${sourceLabel}... anomaly detected: ${token.symbol || mint.slice(0, 6)}`, {
-      mint,
-      symbol: token.symbol,
-      name: token.name,
-    });
+    // Check if already bought or being bought - this is the ONLY check needed
+    if (this.positions.has(mint)) return; // already in position or buy in progress
 
-    if (this.positions.has(mint)) return; // already in position
-
-    await this.executeBuy(token, sourceLabel);
-  }
-
-  async executeBuy(token, sourceLabel) {
-    let entryMcap = parseFloat(token.latest_mcap || token.initial_mcap || 0);
-    const mint = token.mint || token.token_address || token.address;
-    
-    // Double-check position doesn't exist (race condition protection)
-    if (this.positions.has(mint)) return;
-
-    // Reserve the mint immediately to block concurrent buys while we await network calls
+    // Reserve position IMMEDIATELY to prevent duplicate buys (synchronous, no await)
     this.positions.set(mint, {
       mint,
       symbol: token.symbol,
@@ -564,6 +549,41 @@ export class TradingEngine extends EventEmitter {
       tokenAmount: 0,
       tokenDecimals: null,
     });
+
+    this.log('signal', `Scanning ${sourceLabel}... anomaly detected: ${token.symbol || mint.slice(0, 6)}`, {
+      mint,
+      symbol: token.symbol,
+      name: token.name,
+    });
+
+    await this.executeBuy(token, sourceLabel);
+  }
+
+  async executeBuy(token, sourceLabel) {
+    let entryMcap = parseFloat(token.latest_mcap || token.initial_mcap || 0);
+    const mint = token.mint || token.token_address || token.address;
+    
+    // Position should already be reserved in handleNewSignal - this is just a safety check
+    const reservedPosition = this.positions.get(mint);
+    if (!reservedPosition || !reservedPosition.buyInProgress) {
+      // This shouldn't happen, but if it does, reserve it now
+      if (!this.positions.has(mint)) {
+        this.positions.set(mint, {
+          mint,
+          symbol: token.symbol,
+          entryMcap: null,
+          maxMcap: null,
+          amountSol: this.tradeAmountSol,
+          openAt: Date.now(),
+          remainingPct: 100,
+          pnlPct: 0,
+          isMigrating: null,
+          buyInProgress: true,
+          tokenAmount: 0,
+          tokenDecimals: null,
+        });
+      }
+    }
     
     const tokenRecord = this.getTokenRecord(mint);
     const migrationState =
@@ -629,14 +649,8 @@ export class TradingEngine extends EventEmitter {
       return;
     }
 
-    // Live trading: add protection against concurrent execution
-    // Check if there's a pending buy for this mint
-    const existingPosition = this.positions.get(mint);
-    if (existingPosition?.buyInProgress && existingPosition.entryMcap === null) {
-      // Already reserved by this flow; continue
-    } else if (existingPosition?.buyInProgress) {
-      return;
-    }
+    // Position is already reserved in handleNewSignal with buyInProgress: true
+    // This check is just for safety - position should already exist
     if (existingPosition?.nextBuyAttemptAt && Date.now() < existingPosition.nextBuyAttemptAt) return;
 
     try {
