@@ -77,6 +77,7 @@ function App() {
   const tokensRef = useRef(tokens);
   const activeTabRef = useRef(activeTab);
   const soundEnabledRef = useRef(soundEnabled);
+  const lastSoundTokenRef = useRef(null);
   const claudeCashSeenRef = useRef(new Set());
   const lastActivitySoundRef = useRef(null);
   const publicWsRef = useRef(null);
@@ -626,8 +627,9 @@ function App() {
               if (hasPrintScan) {
                 setHighlighted(prev => ({ ...prev, print_scan: token.address }));
                 
-                // Play sound for new Claude Cash tokens (new_tokens message only contains new tokens)
-                if (soundEnabledRef.current && audioRef.current) {
+                // Play sound once per new ClaudeCash token
+                if (soundEnabledRef.current && audioRef.current && token.address !== lastSoundTokenRef.current) {
+                  lastSoundTokenRef.current = token.address;
                   try {
                     audioRef.current.currentTime = 0; // Reset to start
                     audioRef.current.play().catch(err => {
