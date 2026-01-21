@@ -548,6 +548,22 @@ export class TradingEngine extends EventEmitter {
     
     // Double-check position doesn't exist (race condition protection)
     if (this.positions.has(mint)) return;
+
+    // Reserve the mint immediately to block concurrent buys while we await network calls
+    this.positions.set(mint, {
+      mint,
+      symbol: token.symbol,
+      entryMcap: null,
+      maxMcap: null,
+      amountSol: this.tradeAmountSol,
+      openAt: Date.now(),
+      remainingPct: 100,
+      pnlPct: 0,
+      isMigrating: null,
+      buyInProgress: true,
+      tokenAmount: 0,
+      tokenDecimals: null,
+    });
     
     const tokenRecord = this.getTokenRecord(mint);
     const migrationState =
@@ -584,13 +600,12 @@ export class TradingEngine extends EventEmitter {
 
     if (entryMcap <= 0) {
       this.log('warn', `Analysis incomplete: Market cap data missing for ${token.symbol || mint.slice(0, 6)}. Skipping acquisition.`);
+      this.positions.delete(mint);
       return;
     }
 
     if (this.tradingMode !== 'live' || !this.keypair) {
-      // Double-check again before adding position (paper mode)
-      if (this.positions.has(mint)) return;
-      
+      // Update reserved entry for paper mode
       this.positions.set(mint, {
         mint,
         symbol: token.symbol,
@@ -617,27 +632,14 @@ export class TradingEngine extends EventEmitter {
     // Live trading: add protection against concurrent execution
     // Check if there's a pending buy for this mint
     const existingPosition = this.positions.get(mint);
-    if (existingPosition?.buyInProgress) return;
+    if (existingPosition?.buyInProgress && existingPosition.entryMcap === null) {
+      // Already reserved by this flow; continue
+    } else if (existingPosition?.buyInProgress) {
+      return;
+    }
     if (existingPosition?.nextBuyAttemptAt && Date.now() < existingPosition.nextBuyAttemptAt) return;
 
     try {
-      // Mark as in progress immediately to prevent race conditions
-      // Create a temporary position entry to block concurrent buys
-      this.positions.set(mint, {
-        mint,
-        symbol: token.symbol,
-        entryMcap,
-        maxMcap: entryMcap,
-        amountSol: this.tradeAmountSol,
-        openAt: Date.now(),
-        remainingPct: 100,
-        pnlPct: 0,
-        isMigrating: migrationState,
-        buyInProgress: true,
-        tokenAmount: 0, // Will be updated after confirmation
-        tokenDecimals: null,
-      });
-
       const buyResult = await this.swapForMint({
         inputMint: 'So11111111111111111111111111111111111111112',
         outputMint: mint,
