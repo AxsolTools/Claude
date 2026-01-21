@@ -63,6 +63,7 @@ function App() {
       return 'light';
     }
   });
+  const [soundPermissionNeeded, setSoundPermissionNeeded] = useState(false);
   
   // Public feed state (for unauthenticated landing page)
   const [publicToasts, setPublicToasts] = useState([]);
@@ -103,6 +104,20 @@ function App() {
   useEffect(() => {
     soundEnabledRef.current = soundEnabled;
   }, [soundEnabled]);
+
+  const requestSoundPermission = useCallback(async () => {
+    if (!audioRef.current) return;
+    try {
+      // Attempt a short play to unlock audio, then pause/reset
+      await audioRef.current.play();
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      setSoundPermissionNeeded(false);
+    } catch (err) {
+      console.warn('Unable to unlock audio:', err);
+      setSoundPermissionNeeded(true);
+    }
+  }, []);
 
   const getOrCreateDeviceId = useCallback(() => {
     try {
@@ -628,15 +643,22 @@ function App() {
                 setHighlighted(prev => ({ ...prev, print_scan: token.address }));
                 
                 // Play sound once per new ClaudeCash token
-                if (soundEnabledRef.current && audioRef.current && token.address !== lastSoundTokenRef.current) {
+                if (
+                  soundEnabledRef.current &&
+                  audioRef.current &&
+                  token.address !== lastSoundTokenRef.current &&
+                  activeTabRef.current === 'claudecash'
+                ) {
                   lastSoundTokenRef.current = token.address;
                   try {
                     audioRef.current.currentTime = 0; // Reset to start
                     audioRef.current.play().catch(err => {
                       console.warn('Failed to play sound:', err);
+                      setSoundPermissionNeeded(true);
                     });
                   } catch (err) {
                     console.warn('Error playing sound:', err);
+                    setSoundPermissionNeeded(true);
                   }
                 }
               }
@@ -1287,16 +1309,40 @@ function App() {
     );
   }
 
+  const handleToggleSound = useCallback(() => {
+    setSoundEnabled(prev => {
+      const next = !prev;
+      try {
+        alert(next ? 'Sound ON: bell enabled' : 'Sound OFF: bell muted');
+      } catch {
+        // ignore alert failures
+      }
+      if (next && audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => {
+          setSoundPermissionNeeded(true);
+        });
+      }
+      return next;
+    });
+  }, []);
+
   return (
     <div className="app">
       <Header
         connected={connected}
         soundEnabled={soundEnabled}
-        onToggleSound={() => setSoundEnabled(prev => !prev)}
+        onToggleSound={handleToggleSound}
         authWallet={authState.wallet}
         licenseExpiresAt={authState.expiresAt}
         onLogout={handleLogout}
       />
+      {soundEnabled && soundPermissionNeeded && (
+        <div className="sound-permission">
+          <span>Enable sound for new ClaudeCash tokens.</span>
+          <button onClick={requestSoundPermission}>Enable sound</button>
+        </div>
+      )}
       
       <main className="main-content">
         <div className="hero">
@@ -1590,6 +1636,33 @@ function App() {
           font-size: 1.05rem;
           line-height: 1.6;
           color: var(--text-secondary);
+        }
+
+        .sound-permission {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+          margin: 0 2rem;
+          padding: 0.6rem 0.9rem;
+          background: var(--bg-secondary);
+          border: 1px solid var(--border-color);
+          border-radius: 8px;
+          color: var(--text-secondary);
+        }
+
+        .sound-permission button {
+          border: 1px solid var(--border-color);
+          background: var(--bg-card);
+          padding: 0.35rem 0.75rem;
+          border-radius: 6px;
+          cursor: pointer;
+          color: var(--text-primary);
+          transition: all 0.2s ease;
+        }
+
+        .sound-permission button:hover {
+          border-color: var(--accent-primary);
+          color: var(--accent-primary);
         }
 
         .ops-window {
