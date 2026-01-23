@@ -163,10 +163,10 @@ if (backfilled > 0) {
 }
 
 const VISIBLE_REFRESH_LIMIT = Number.parseInt(process.env.VISIBLE_REFRESH_LIMIT || '15', 10);
-const REALTIME_MCAP_BROADCAST_INTERVAL_MS = Number.parseInt(process.env.REALTIME_MCAP_BROADCAST_INTERVAL_MS || '2000', 10); // 2s for faster updates
+const REALTIME_MCAP_BROADCAST_INTERVAL_MS = Number.parseInt(process.env.REALTIME_MCAP_BROADCAST_INTERVAL_MS || '3000', 10); // 3s for real-time updates
 const REALTIME_MCAP_BROADCAST_LIMIT = Number.parseInt(process.env.REALTIME_MCAP_BROADCAST_LIMIT || '60', 10);
 const REALTIME_MCAP_BROADCAST_CONCURRENCY = Number.parseInt(process.env.REALTIME_MCAP_BROADCAST_CONCURRENCY || '5', 10); // Higher concurrency
-const REALTIME_MCAP_BROADCAST_MIN_PCT_CHANGE = Number.parseFloat(process.env.REALTIME_MCAP_BROADCAST_MIN_PCT_CHANGE || '0.05'); // 0.05% for more frequent updates
+const REALTIME_MCAP_BROADCAST_MIN_PCT_CHANGE = Number.parseFloat(process.env.REALTIME_MCAP_BROADCAST_MIN_PCT_CHANGE || '0'); // 0% - always update for real-time accuracy
 
 const pumpPortalWs = new PumpPortalWebSocket({
   url: process.env.PUMP_PORTAL_WS_URL || 'wss://pumpportal.fun/api/data',
@@ -331,7 +331,35 @@ const attachRealtimeMcapField = async (tokens, { limit = 30, forceRefresh = fals
       const mint = token?.address || token?.mint || token?.token_address;
       if (!mint || !tradingEngine?.getRealtimeMcap) return token;
       try {
-        const realtimeMcap = await tradingEngine.getRealtimeMcap(mint, forceRefresh);
+        // PRIORITY: Always check PumpPortal WS cache first (even on forceRefresh)
+        // This prevents stale data on refresh - use real-time WS data if available
+        let realtimeMcap = null;
+        if (pumpPortalWs) {
+          const wsMcapUsd = pumpPortalWs.getMarketCapUsd(mint);
+          if (Number.isFinite(wsMcapUsd) && wsMcapUsd > 0) {
+            realtimeMcap = wsMcapUsd;
+          } else {
+            // Try SOL market cap and convert to USD
+            const wsMcapSol = pumpPortalWs.getMarketCapSol(mint);
+            if (Number.isFinite(wsMcapSol) && wsMcapSol > 0) {
+              try {
+                const solUsd = await tradingEngine.helius.getSolUsdPrice();
+                if (Number.isFinite(solUsd) && solUsd > 0) {
+                  realtimeMcap = wsMcapSol * solUsd;
+                }
+              } catch {
+                // Fall through to getRealtimeMcap
+              }
+            }
+          }
+        }
+        
+        // Fallback to getRealtimeMcap if PumpPortal WS doesn't have data
+        // On forceRefresh, this will bypass cache and fetch fresh from API
+        if (!Number.isFinite(realtimeMcap) || realtimeMcap <= 0) {
+          realtimeMcap = await tradingEngine.getRealtimeMcap(mint, forceRefresh);
+        }
+        
         if (!Number.isFinite(realtimeMcap) || realtimeMcap <= 0) return token;
         // Important: keep stored/latest mcap intact; publish helius mcap separately.
         return { ...token, realtime_mcap: realtimeMcap, realtime_mcap_ts: Date.now() };
@@ -815,11 +843,39 @@ async function broadcastRealtimeMcaps() {
   const updates = await mapWithConcurrency(tokens, REALTIME_MCAP_BROADCAST_CONCURRENCY, async (token) => {
     const mint = token?.address || token?.mint || token?.token_address;
     if (!mint) return null;
-    const mcap = await tradingEngine.getRealtimeMcap(mint);
+    
+    // PRIORITY: Check PumpPortal WS cache first (fastest, real-time from trade events)
+    let mcap = null;
+    if (pumpPortalWs) {
+      const wsMcapUsd = pumpPortalWs.getMarketCapUsd(mint);
+      if (Number.isFinite(wsMcapUsd) && wsMcapUsd > 0) {
+        mcap = wsMcapUsd;
+      } else {
+        // Try SOL market cap and convert to USD
+        const wsMcapSol = pumpPortalWs.getMarketCapSol(mint);
+        if (Number.isFinite(wsMcapSol) && wsMcapSol > 0) {
+          try {
+            const solUsd = await tradingEngine.helius.getSolUsdPrice();
+            if (Number.isFinite(solUsd) && solUsd > 0) {
+              mcap = wsMcapSol * solUsd;
+            }
+          } catch {
+            // Fall through to getRealtimeMcap
+          }
+        }
+      }
+    }
+    
+    // Fallback to getRealtimeMcap if PumpPortal WS doesn't have data
+    if (!Number.isFinite(mcap) || mcap <= 0) {
+      mcap = await tradingEngine.getRealtimeMcap(mint);
+    }
+    
     if (!Number.isFinite(mcap) || mcap <= 0) return null;
 
+    // Only filter by percentage change if configured (default 0% = always update)
     const prev = lastRealtimeBroadcast.get(mint);
-    if (Number.isFinite(prev) && prev > 0) {
+    if (REALTIME_MCAP_BROADCAST_MIN_PCT_CHANGE > 0 && Number.isFinite(prev) && prev > 0) {
       const pct = Math.abs((mcap - prev) / prev) * 100;
       if (pct < REALTIME_MCAP_BROADCAST_MIN_PCT_CHANGE) return null;
     }

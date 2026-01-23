@@ -311,9 +311,10 @@ export class TradingEngine extends EventEmitter {
   async getRealtimeMcap(mint, forceRefresh = false) {
     if (!mint) return null;
     
-    // PRIORITY 1: Check PumpPortal WebSocket cache first (fastest, real-time)
+    // PRIORITY 1: Always check PumpPortal WebSocket cache first (fastest, real-time)
+    // Even on forceRefresh, use PumpPortal WS if available to prevent stale data on refresh
     // PumpPortal provides SOL market cap, convert to USD
-    if (this.pumpPortalWs && !forceRefresh) {
+    if (this.pumpPortalWs) {
       const wsMcapUsd = this.pumpPortalWs.getMarketCapUsd(mint);
       if (Number.isFinite(wsMcapUsd) && wsMcapUsd > 0) {
         // Also cache in our internal cache for consistency
@@ -402,13 +403,40 @@ export class TradingEngine extends EventEmitter {
     if (this.positions.size === 0) return;
     
     // Fetch all mcaps in parallel for faster updates
+    // PRIORITY: Use PumpPortal WS for active positions (100% reactive, real-time from every trade)
     const entries = Array.from(this.positions.entries());
     const mcapResults = await Promise.all(
       entries.map(async ([mint, position]) => {
         try {
-          // Use same method as ClaudeCash feed - use cache (1s TTL, runs every 3s = always fresh)
+          // PRIORITY 1: Check PumpPortal WS cache first (fastest, real-time from trade events)
+          // PumpPortal shows market cap on every trade - this ensures 100% reactive stop loss/take profit
+          let mcap = null;
+          if (this.pumpPortalWs) {
+            const wsMcapUsd = this.pumpPortalWs.getMarketCapUsd(mint);
+            if (Number.isFinite(wsMcapUsd) && wsMcapUsd > 0) {
+              mcap = wsMcapUsd;
+            } else {
+              // Try SOL market cap and convert to USD
+              const wsMcapSol = this.pumpPortalWs.getMarketCapSol(mint);
+              if (Number.isFinite(wsMcapSol) && wsMcapSol > 0) {
+                try {
+                  const solUsd = await this.helius.getSolUsdPrice();
+                  if (Number.isFinite(solUsd) && solUsd > 0) {
+                    mcap = wsMcapSol * solUsd;
+                  }
+                } catch {
+                  // Fall through to getRealtimeMcap
+                }
+              }
+            }
+          }
+          
+          // Fallback to getRealtimeMcap if PumpPortal WS doesn't have data
           // This ensures we get the latest market cap every 3 seconds, same as ClaudeCash feed
-          const mcap = await this.getRealtimeMcap(mint);
+          if (!Number.isFinite(mcap) || mcap <= 0) {
+            mcap = await this.getRealtimeMcap(mint);
+          }
+          
           return { mint, position, mcap, error: null };
         } catch (e) {
           return { mint, position, mcap: null, error: e };
