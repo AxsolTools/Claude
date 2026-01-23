@@ -646,7 +646,6 @@ function App() {
                 if (
                   soundEnabledRef.current &&
                   audioRef.current &&
-                  token.isNew &&
                   token.address !== lastSoundTokenRef.current
                 ) {
                   lastSoundTokenRef.current = token.address;
